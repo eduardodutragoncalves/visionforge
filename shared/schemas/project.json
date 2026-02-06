@@ -1,0 +1,36 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Project Manifest",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "name": {
+            "type": "string"
+        },
+        "description": {
+            "type": "string"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "updated_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "datasets": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "default": []
+        }
+    },
+    "required": [
+        "id",
+        "name",
+        "created_at"
+    ]
+}

@@ -1,0 +1,60 @@
+import { useRef, useEffect } from 'react';
+import { useEngineStore } from '../store/engineStore';
+import { useTrainingStore } from '../store/trainingStore';
+
+export const useEngineConnection = () => {
+    const wsRef = useRef<WebSocket | null>(null);
+    const { setConnected, updateGpu } = useEngineStore();
+    const { addMetric, addLog, setStatus, startRun } = useTrainingStore();
+
+    useEffect(() => {
+        const connect = () => {
+            const ws = new WebSocket('ws://localhost:8000/ws');
+            wsRef.current = ws;
+
+            ws.onopen = () => {
+                setConnected(true);
+                console.log("WS Connected");
+                // Mock GPU update on connection
+                updateGpu({ name: "NVIDIA RTX 4090 (Mock)", memoryTotal: 24576 });
+            };
+
+            ws.onclose = () => {
+                setConnected(false);
+                console.log("WS Disconnected, retrying in 3s...");
+                setTimeout(connect, 3000);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.event === 'train/metrics') {
+                        addMetric(msg.data);
+                        setStatus('training');
+                    } else if (msg.event === 'train/logs') {
+                        addLog({
+                            timestamp: new Date().toLocaleTimeString(),
+                            level: msg.data.level || 'INFO',
+                            message: msg.data.message
+                        });
+                    } else if (msg.event === 'train/started') {
+                        // Assuming 10 for now if not in payload, ideally payload has config
+                        startRun(msg.data.run_id, 10);
+                    } else if (msg.event === 'train/completed') {
+                        setStatus('completed');
+                    } else if (msg.event === 'export/completed') {
+                        window.dispatchEvent(new CustomEvent('vf-export-completed', { detail: msg.data }));
+                    }
+                } catch (e) {
+                    console.error("Failed to parse WS msg", event.data);
+                }
+            };
+        };
+
+        connect();
+
+        return () => {
+            wsRef.current?.close();
+        };
+    }, []);
+};

@@ -1,0 +1,10 @@
+FROM ultralytics/ultralytics:latest
+
+# Install additional dependencies
+# OpenCV headless is usually needed
+RUN pip install opencv-python-headless fastapi uvicorn
+
+# We assume workspace is mounted at /workspace
+# and engine code at /app
+
+ENTRYPOINT ["python"]

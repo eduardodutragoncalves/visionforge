@@ -1,0 +1,61 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Run Manifest",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "project_id": {
+            "type": "string"
+        },
+        "variant_id": {
+            "type": [
+                "string",
+                "null"
+            ]
+        },
+        "status": {
+            "type": "string",
+            "enum": [
+                "queued",
+                "running",
+                "completed",
+                "failed",
+                "stopped",
+                "starting"
+            ]
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "updated_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "config": {
+            "type": "object"
+        },
+        "results": {
+            "type": "object",
+            "properties": {
+                "final_accuracy": {
+                    "type": "number"
+                },
+                "final_loss": {
+                    "type": "number"
+                },
+                "epoch_count": {
+                    "type": "integer"
+                }
+            }
+        }
+    },
+    "required": [
+        "id",
+        "project_id",
+        "status",
+        "created_at"
+    ]
+}

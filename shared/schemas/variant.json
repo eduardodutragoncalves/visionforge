@@ -1,0 +1,32 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Variant Manifest",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "project_id": {
+            "type": "string"
+        },
+        "name": {
+            "type": "string"
+        },
+        "base_model": {
+            "type": "string"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "hyperparameters": {
+            "type": "object"
+        }
+    },
+    "required": [
+        "id",
+        "project_id",
+        "base_model",
+        "created_at"
+    ]
+}
