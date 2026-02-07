@@ -39,8 +39,9 @@ export const ProjectTest = () => {
                 const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/variants`);
                 if (res.ok) {
                     const data = await res.json();
-                    setVariants(data);
-                    if (data.length > 0) setSelectedVariant(data[0].id);
+                    const normalized = Array.isArray(data) ? data : [];
+                    setVariants(normalized);
+                    if (normalized.length > 0) setSelectedVariant(normalized[0].id);
                 }
             } catch (e) {
                 console.error(e);
@@ -157,6 +158,9 @@ export const ProjectTest = () => {
                             value={selectedVariant}
                             onChange={e => setSelectedVariant(e.target.value)}
                         />
+                        {variants.length === 0 && (
+                            <div className="mt-2 text-xs text-secondary">No trained variants yet.</div>
+                        )}
                     </div>
 
                     <div className="pt-4 border-t border-white/10">

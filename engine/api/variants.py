@@ -20,6 +20,7 @@ async def list_variants(project_id: str):
                     variants.append(data)
                 except Exception:
                     pass
+    return variants
     
 @router.post("/variants/{variant_id}/export")
 async def export_variant(variant_id: str, format: str = "onnx", project_id: str = "p1"): # project_id hack if not passed
@@ -47,4 +48,3 @@ async def export_variant_scoped(project_id: str, variant_id: str, format: str = 
     })
     
     return {"status": "queued", "job_id": run_id}
-
