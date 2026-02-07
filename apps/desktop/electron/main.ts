@@ -21,6 +21,8 @@ process.env.DIST = DIST
 process.env.PUBLIC = PUBLIC
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
+const DEFAULT_DEV_SERVER_URL = 'http://127.0.0.1:5173/'
+const isDev = !app.isPackaged
 
 let win: BrowserWindow | null = null
 let engineProcess: ChildProcessWithoutNullStreams | null = null
@@ -145,6 +147,7 @@ function createWindow() {
         width: 1200,
         height: 800,
         frame: false,
+        show: false,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
         },
@@ -165,6 +168,22 @@ function createWindow() {
     win.webContents.on('did-finish-load', () => {
         win?.webContents.send('main-process-message', new Date().toLocaleString())
     })
+    win.webContents.on('did-fail-load', (_event, code, desc, url) => {
+        console.error(`[renderer] failed to load (${code}): ${desc} -> ${url}`)
+    })
+    win.webContents.on('render-process-gone', (_event, details) => {
+        console.error(`[renderer] process gone: ${details.reason}`)
+    })
+    win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+        const levelName = ['log', 'warn', 'error'][level] ?? 'log'
+        console.log(`[renderer:${levelName}] ${message} (${sourceId}:${line})`)
+    })
+    win.once('ready-to-show', () => {
+        win?.show()
+        if (process.env.VITE_OPEN_DEVTOOLS === '1') {
+            win?.webContents.openDevTools({ mode: 'detach' })
+        }
+    })
 
     const notifyMaximize = () => {
         win?.webContents.send('window:maximize-changed', win.isMaximized())
@@ -173,10 +192,15 @@ function createWindow() {
     win.on('maximize', notifyMaximize)
     win.on('unmaximize', notifyMaximize)
 
-    if (VITE_DEV_SERVER_URL) {
-        win.loadURL(VITE_DEV_SERVER_URL)
+    const devServerUrl = VITE_DEV_SERVER_URL || (isDev ? DEFAULT_DEV_SERVER_URL : '')
+    if (devServerUrl) {
+        win.loadURL(devServerUrl).catch((err) => {
+            console.error('[renderer] failed to load dev server', err)
+        })
     } else {
-        win.loadFile(path.join(DIST, 'index.html'))
+        win.loadFile(path.join(DIST, 'index.html')).catch((err) => {
+            console.error('[renderer] failed to load index.html', err)
+        })
     }
 }
 
