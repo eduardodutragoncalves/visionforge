@@ -19,6 +19,25 @@ interface InferenceResult {
     fps_est: number;
 }
 
+interface HistoryVariantResult {
+    variant_id: string;
+    tested_at?: string;
+    task?: 'detect' | 'classify';
+    predictions: Prediction[];
+    latency_ms?: number;
+    fps_est?: number;
+    feedback?: 'correct' | 'incorrect' | null;
+}
+
+interface HistoryItem {
+    image_id: string;
+    image_file?: string;
+    original_name?: string;
+    created_at?: string;
+    last_tested_at?: string;
+    variants?: Record<string, HistoryVariantResult>;
+}
+
 export const ProjectTest = () => {
     const { projectId } = useParams();
 
@@ -28,6 +47,9 @@ export const ProjectTest = () => {
     const [imageSrc, setImageSrc] = useState<string | null>(null);
     const [result, setResult] = useState<InferenceResult | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [history, setHistory] = useState<HistoryItem[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
 
     // Refs for Canvas drawing
     const imgRef = useRef<HTMLImageElement>(null);
@@ -51,12 +73,40 @@ export const ProjectTest = () => {
         fetchVariants();
     }, [projectId]);
 
+    const loadHistory = async () => {
+        if (!projectId) return;
+        setHistoryLoading(true);
+        try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/inference/history`);
+            if (res.ok) {
+                const data = await res.json();
+                setHistory(Array.isArray(data) ? data : []);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadHistory();
+    }, [projectId]);
+
+    const historyImageUrl = (item: HistoryItem) => {
+        if (!projectId) return '';
+        return `${ENGINE_HTTP_URL}/projects/${projectId}/inference/history/images/${item.image_id}`;
+    };
+
+    const activeHistory = history.find((item) => item.image_id === activeHistoryId) || null;
+
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             const url = URL.createObjectURL(file);
             setImageSrc(url);
             setResult(null); // Clear previous results
+            setActiveHistoryId(null);
 
             // Auto-trigger inference if model is selected? No, wait for user or maybe yes.
             // Let's do it automatically for better UX
@@ -81,6 +131,13 @@ export const ProjectTest = () => {
             if (res.ok) {
                 const data = await res.json();
                 setResult(data);
+                if (data.history_item) {
+                    setHistory((prev) => {
+                        const next = prev.filter((item) => item.image_id !== data.history_item.image_id);
+                        return [data.history_item, ...next];
+                    });
+                    setActiveHistoryId(data.history_item.image_id);
+                }
             } else {
                 console.error("Inference failed");
             }
@@ -88,6 +145,65 @@ export const ProjectTest = () => {
             console.error(e);
         } finally {
             setIsProcessing(false);
+        }
+    };
+
+    const runInferenceForHistory = async (imageId: string, variantId?: string) => {
+        const targetVariant = variantId || selectedVariant;
+        if (!targetVariant || !projectId) return;
+        setIsProcessing(true);
+        const formData = new FormData();
+        formData.append('conf_threshold', '0.25');
+        try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/variants/${targetVariant}/infer/history/${imageId}`, {
+                method: 'POST',
+                body: formData
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setResult(data);
+                if (data.history_item) {
+                    setHistory((prev) => {
+                        const next = prev.filter((item) => item.image_id !== data.history_item.image_id);
+                        return [data.history_item, ...next];
+                    });
+                    setActiveHistoryId(data.history_item.image_id);
+                }
+            } else {
+                console.error("Inference failed");
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleFeedback = async (imageId: string, variantId: string, verdict: 'correct' | 'incorrect' | null) => {
+        if (!projectId) return;
+        const formData = new FormData();
+        formData.append('variant_id', variantId);
+        if (verdict) {
+            formData.append('verdict', verdict);
+        }
+        try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/inference/history/${imageId}/feedback`, {
+                method: 'POST',
+                body: formData
+            });
+            if (!res.ok) return;
+            setHistory((prev) =>
+                prev.map((item) => {
+                    if (item.image_id !== imageId) return item;
+                    const variantsMap = { ...(item.variants || {}) };
+                    if (variantsMap[variantId]) {
+                        variantsMap[variantId] = { ...variantsMap[variantId], feedback: verdict };
+                    }
+                    return { ...item, variants: variantsMap };
+                })
+            );
+        } catch (e) {
+            console.error(e);
         }
     };
 
@@ -154,6 +270,36 @@ export const ProjectTest = () => {
         }
     }, [result, imageSrc]);
 
+    useEffect(() => {
+        if (!activeHistory || !projectId) return;
+        const variantResult = activeHistory.variants?.[selectedVariant || ""];
+        if (variantResult) {
+            setResult({
+                task: variantResult.task,
+                predictions: variantResult.predictions || [],
+                latency_ms: variantResult.latency_ms ?? 0,
+                fps_est: variantResult.fps_est ?? 0
+            });
+        } else {
+            setResult(null);
+        }
+        setImageSrc(historyImageUrl(activeHistory));
+    }, [activeHistoryId, selectedVariant, projectId]);
+
+    const getVariantName = (variantId: string) => {
+        return variants.find((variant) => variant.id === variantId)?.name || variantId;
+    };
+
+    const renderPredictionSummary = (variantResult: HistoryVariantResult) => {
+        if (variantResult.task === 'classify') {
+            const top = variantResult.predictions?.[0];
+            if (!top) return 'No predictions';
+            return `${top.class_name} ${(top.confidence * 100).toFixed(1)}%`;
+        }
+        const count = variantResult.predictions?.length || 0;
+        return `${count} detections`;
+    };
+
     return (
         <div className="project-test animate-fade-in space-y-6 h-full flex flex-col">
             <header className="flex justify-between items-center">
@@ -164,8 +310,9 @@ export const ProjectTest = () => {
             </header>
 
             <div className="grid grid-cols-12 gap-6 flex-1">
+                <div className="col-span-3 space-y-6">
                 {/* Control Panel */}
-                <Card className="col-span-3 h-fit space-y-6">
+                <Card className="h-fit space-y-6">
                     <div>
                         <Select
                             label="Select Model"
@@ -236,6 +383,95 @@ export const ProjectTest = () => {
                         </div>
                     )}
                 </Card>
+
+                <Card className="h-fit space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold">History</h3>
+                        <Button size="sm" variant="secondary" onClick={loadHistory} disabled={historyLoading}>
+                            {historyLoading ? 'Loading...' : 'Refresh'}
+                        </Button>
+                    </div>
+
+                    {!historyLoading && history.length === 0 && (
+                        <div className="text-sm text-secondary">No history yet. Upload an image to start.</div>
+                    )}
+
+                    {history.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                            {history.map((item) => (
+                                <button
+                                    key={item.image_id}
+                                    type="button"
+                                    onClick={() => setActiveHistoryId(item.image_id)}
+                                    className={`border-2 ${activeHistoryId === item.image_id ? 'border-accent-primary' : 'border-graphite-700'} bg-graphite-900 p-1`}
+                                >
+                                    <img
+                                        src={historyImageUrl(item)}
+                                        alt={item.original_name || item.image_id}
+                                        className="h-16 w-full object-cover"
+                                    />
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {activeHistory && (
+                        <div className="space-y-3">
+                            <div className="text-xs uppercase tracking-[0.3em] text-secondary">
+                                Comparisons
+                            </div>
+                            {variants.map((variant) => {
+                                const variantResult = activeHistory.variants?.[variant.id];
+                                const feedback = variantResult?.feedback || null;
+                                return (
+                                    <div key={variant.id} className="border border-graphite-700/70 bg-graphite-900 p-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="text-sm font-semibold">{variant.name}</div>
+                                            {variantResult ? (
+                                                <span className="text-xs text-secondary">{renderPredictionSummary(variantResult)}</span>
+                                            ) : (
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => runInferenceForHistory(activeHistory.image_id, variant.id)}
+                                                >
+                                                    Run
+                                                </Button>
+                                            )}
+                                        </div>
+                                        {variantResult && (
+                                            <div className="mt-3 flex items-center gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    className={feedback === 'correct' ? 'border-accent-success text-accent-success' : ''}
+                                                    onClick={() => handleFeedback(activeHistory.image_id, variant.id, feedback === 'correct' ? null : 'correct')}
+                                                >
+                                                    Correct
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    className={feedback === 'incorrect' ? 'border-accent-error text-accent-error' : ''}
+                                                    onClick={() => handleFeedback(activeHistory.image_id, variant.id, feedback === 'incorrect' ? null : 'incorrect')}
+                                                >
+                                                    Wrong
+                                                </Button>
+                                                <span className="text-xs text-secondary">
+                                                    {variantResult.tested_at ? new Date(variantResult.tested_at).toLocaleTimeString() : ''}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {variants.length === 0 && (
+                                <div className="text-sm text-secondary">No variants available yet.</div>
+                            )}
+                        </div>
+                    )}
+                </Card>
+                </div>
 
                 {/* Visualizer */}
                 <div className="col-span-9 bg-black/40 rounded-lg border border-white/5 flex items-center justify-center p-4 relative overflow-hidden min-h-[400px]">

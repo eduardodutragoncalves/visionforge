@@ -29,6 +29,15 @@ def get_project_dataset_images_dir(project_id: str) -> Path:
 def get_project_dataset_frames_dir(project_id: str) -> Path:
     return get_project_dataset_dir(project_id) / "frames"
 
+def get_project_inference_dir(project_id: str) -> Path:
+    return get_project_dir(project_id) / "inference"
+
+def get_project_inference_images_dir(project_id: str) -> Path:
+    return get_project_inference_dir(project_id) / "images"
+
+def get_project_inference_history_path(project_id: str) -> Path:
+    return get_project_inference_dir(project_id) / "history.json"
+
 def get_runs_dir(project_id: str) -> Path:
     return get_project_dir(project_id) / "runs"
 
