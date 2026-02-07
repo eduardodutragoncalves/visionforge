@@ -1,8 +1,12 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
+import mimetypes
+from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional
 
 from engine.services.dataset_service import dataset_service
+from engine.io import paths
 
 router = APIRouter()
 
@@ -63,6 +67,24 @@ async def get_dataset(project_id: str):
 async def list_images(project_id: str, limit: int = 200, offset: int = 0):
     try:
         return dataset_service.list_images(project_id, limit=limit, offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/projects/{project_id}/dataset/images/{image_id}/file")
+async def get_image_file(project_id: str, image_id: str):
+    try:
+        image_path = dataset_service.get_image_path(project_id, image_id)
+        file_path = Path(image_path)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Image not found on disk")
+        dataset_dir = paths.get_project_dataset_dir(project_id).resolve()
+        resolved_path = file_path.resolve()
+        if not str(resolved_path).startswith(str(dataset_dir)):
+            raise HTTPException(status_code=403, detail="Image path not allowed")
+        media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        return FileResponse(str(file_path), media_type=media_type, filename=file_path.name)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -70,6 +70,12 @@ export const ProjectDataset = () => {
     const classes = dataset?.classes ?? [];
 
     const classMap = useMemo(() => new Map(classes.map((cls) => [cls.id, cls.name])), [classes]);
+    const getImageSrc = (image: DatasetImage) => {
+        if (projectId) {
+            return `${API_BASE_URL}/projects/${projectId}/dataset/images/${image.id}/file`;
+        }
+        return toFileUrl(image.path);
+    };
 
     const selectedImage = useMemo(
         () => images.find((image) => image.id === activeImageId) || null,
@@ -556,11 +562,11 @@ export const ProjectDataset = () => {
                                         onClick={() => toggleSelected(image.id)}
                                         className={`border-2 ${selectedIds.has(image.id) ? 'border-accent-primary' : 'border-graphite-700'} bg-graphite-900 p-2 text-left`}
                                     >
-                                        <img
-                                            src={toFileUrl(image.path)}
-                                            alt={image.id}
-                                            className="h-24 w-full object-cover"
-                                        />
+                                            <img
+                                                src={getImageSrc(image)}
+                                                alt={image.id}
+                                                className="h-24 w-full object-cover"
+                                            />
                                         <div className="mt-2 text-xs text-secondary">
                                             {image.labels.length > 0
                                                 ? `Label: ${image.labels.map((id) => classMap.get(id) || id).join(', ')}`
@@ -614,7 +620,7 @@ export const ProjectDataset = () => {
                                             <>
                                                 <img
                                                     ref={imageRef}
-                                                    src={toFileUrl(selectedImage.path)}
+                                                    src={getImageSrc(selectedImage)}
                                                     alt={selectedImage.id}
                                                     className="max-h-[520px] w-full object-contain"
                                                     onLoad={() => drawBoxes(selectedImage.boxes, draftBox)}

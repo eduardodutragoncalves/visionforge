@@ -252,6 +252,14 @@ class DatasetService:
         images = dataset.get("images", [])
         return images[offset:offset + limit]
 
+    def get_image_path(self, project_id: str, image_id: str) -> str:
+        dataset = self._load_or_create_dataset(project_id)
+        images = dataset.get("images", [])
+        for image in images:
+            if image["id"] == image_id:
+                return image["path"]
+        raise ValueError("Image not found")
+
     def update_image_labels(self, project_id: str, image_id: str, labels: List[int]) -> Dict[str, Any]:
         dataset = self._load_or_create_dataset(project_id)
         images = dataset.get("images", [])
