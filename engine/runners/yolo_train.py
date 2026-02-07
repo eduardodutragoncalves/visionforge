@@ -135,6 +135,25 @@ def main():
             yaml.dump(data_yaml_content, f)
 
     # 2. Callback Definition
+    def _safe_loss_value(trainer):
+        loss_items = getattr(trainer, "loss_items", None)
+        if loss_items is None:
+            return None
+        if isinstance(loss_items, torch.Tensor):
+            if loss_items.ndim == 0:
+                return float(loss_items.item())
+            flat = loss_items.detach().cpu().flatten()
+            return float(flat[0].item()) if flat.numel() > 0 else None
+        if isinstance(loss_items, (list, tuple)):
+            if not loss_items:
+                return None
+            first = loss_items[0]
+            return float(first.item()) if isinstance(first, torch.Tensor) else float(first)
+        try:
+            return float(loss_items)
+        except Exception:
+            return None
+
     def on_train_epoch_end(trainer):
         """Called at end of training epoch"""
         metrics = trainer.metrics
@@ -144,10 +163,11 @@ def main():
         # keys like 'metrics/mAP50(B)', 'val/box_loss', etc.
         # Ultralytics 8 structure:
         
+        loss_value = _safe_loss_value(trainer)
         parsed_metrics = {
             "epoch": epoch,
             "total_epochs": args.epochs,
-            "loss": float(trainer.loss_items[0]) if hasattr(trainer, "loss_items") else 0.0, # Approximate box loss
+            "loss": loss_value if loss_value is not None else 0.0,
             # Detailed metrics from trainer.metrics which is populated after validation
             # For intermediate, we might only have loss
         }
