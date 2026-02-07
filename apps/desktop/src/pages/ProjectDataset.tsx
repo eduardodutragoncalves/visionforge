@@ -704,8 +704,15 @@ export const ProjectDataset = () => {
                                     <button
                                         key={image.id}
                                         type="button"
-                                        onClick={() => toggleSelected(image.id)}
-                                        onDoubleClick={() => setPreviewImageId(image.id)}
+                                        onClick={(event) => {
+                                            if (event.detail > 1) return;
+                                            toggleSelected(image.id);
+                                        }}
+                                        onDoubleClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            setPreviewImageId(image.id);
+                                        }}
                                         className={clsx(
                                             'image-card',
                                             imageAspect[image.id] ? `image-card-${imageAspect[image.id]}` : null,
