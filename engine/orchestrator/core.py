@@ -105,10 +105,12 @@ class Orchestrator:
              project_json_path = os.path.join(project_dir, "project.json")
              
              dataset_path = None
+             dataset_task = "detect"
              dataset_manifest_path = paths.get_dataset_manifest_path(project_id)
              if dataset_manifest_path.exists():
                  try:
                      dataset = manifests.load_manifest(dataset_manifest_path)
+                     dataset_task = dataset.get("task") or dataset_task
                      dataset_path = dataset.get("root_path") or str(paths.get_project_dataset_dir(project_id))
                  except Exception:
                      dataset_path = None
@@ -129,6 +131,8 @@ class Orchestrator:
                  "--run-id", run_id,
                  "--project-id", project_id,
                  "--dataset-path", dataset_path,
+                 "--dataset-manifest", str(dataset_manifest_path),
+                 "--task", dataset_task,
                  "--run-dir", run_dir,
                  "--epochs", str(config.get("epochs", 10)),
                  "--batch", str(config.get("batch_size", 16)),

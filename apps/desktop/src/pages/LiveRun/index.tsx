@@ -12,8 +12,9 @@ export const LiveRun = () => {
 
     // Derived stats
     const lastMetric = metrics[metrics.length - 1];
-    const loss = lastMetric?.loss.toFixed(4) || '---';
-    const acc = lastMetric?.accuracy.toFixed(4) || '---';
+    const formatMetric = (value?: number) => (typeof value === 'number' ? value.toFixed(4) : '---');
+    const loss = formatMetric(lastMetric?.loss);
+    const acc = formatMetric(lastMetric?.accuracy);
 
     return (
         <div className="live-run animate-fade-in space-y-6">
