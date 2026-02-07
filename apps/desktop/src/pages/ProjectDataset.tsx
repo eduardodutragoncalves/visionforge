@@ -795,7 +795,7 @@ export const ProjectDataset = () => {
             ) : (
                 <>
             {dataset && dataset.task === 'classification' && (
-                        <Card className="space-y-4 flex flex-col min-h-[calc(100vh-320px)]">
+                        <Card className="space-y-4 flex flex-col h-[calc(100vh-320px)] max-h-[calc(100vh-320px)] min-h-[480px] overflow-hidden">
                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                 <div>
                                     <h3 className="text-lg font-semibold">Classification labeling</h3>
