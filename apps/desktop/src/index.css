@@ -310,6 +310,16 @@
     @apply text-bone;
   }
 
+  .stat-chip {
+    @apply flex items-center justify-between border border-graphite-700/70 bg-graphite-900 px-3 py-2 uppercase tracking-[0.3em] text-secondary;
+    border-radius: 12px;
+  }
+
+  .stat-chip strong {
+    @apply text-bone font-semibold;
+    letter-spacing: 0.2em;
+  }
+
   .loader {
     @apply h-3 w-3 animate-spin rounded-full border-2 border-bone/40 border-t-transparent;
   }

@@ -4,7 +4,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
-import { ENGINE_HTTP_URL } from '../lib/engine';
+import { ENGINE_HTTP_URL, ENGINE_WS_URL } from '../lib/engine';
 
 interface Project {
     id: string;
@@ -14,6 +14,22 @@ interface Project {
     created_at: string;
     updated_at: string;
     datasets: string[];
+    images_total?: number;
+    labeled_images?: number;
+    labels_total?: number;
+    classes_total?: number;
+    sources_total?: number;
+    runs_total?: number;
+    last_run_at?: string | null;
+}
+
+interface DeleteState {
+    projectId: string;
+    projectName: string;
+    status: string;
+    progress: number;
+    total?: number;
+    deleted?: number;
 }
 
 const API_BASE_URL = ENGINE_HTTP_URL;
@@ -34,6 +50,8 @@ export const Projects = () => {
     const [form, setForm] = useState({ name: '', description: '', analysis_type: 'classification' });
     const [formError, setFormError] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
+    const [deleteState, setDeleteState] = useState<DeleteState | null>(null);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
 
     const loadProjects = async () => {
         setLoading(true);
@@ -55,6 +73,34 @@ export const Projects = () => {
     useEffect(() => {
         loadProjects();
     }, []);
+
+    useEffect(() => {
+        if (!deleteState) return;
+        const ws = new WebSocket(ENGINE_WS_URL);
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.event !== 'project/delete_progress') return;
+                if (msg.data.project_id !== deleteState.projectId) return;
+                setDeleteState((prev) => {
+                    if (!prev) return prev;
+                    return {
+                        ...prev,
+                        status: msg.data.status || prev.status,
+                        progress: Number(msg.data.progress ?? prev.progress),
+                        total: msg.data.total ?? prev.total,
+                        deleted: msg.data.deleted ?? prev.deleted
+                    };
+                });
+                if (msg.data.status === 'completed') {
+                    setProjects((prev) => prev.filter((project) => project.id !== deleteState.projectId));
+                }
+            } catch {
+                // ignore
+            }
+        };
+        return () => ws.close();
+    }, [deleteState?.projectId]);
 
     const handleCreate = async () => {
         const trimmedName = form.name.trim();
@@ -87,6 +133,27 @@ export const Projects = () => {
             setFormError(err instanceof Error ? err.message : 'Failed to create project.');
         } finally {
             setCreating(false);
+        }
+    };
+
+    const handleDelete = async (project: Project) => {
+        const confirmed = window.confirm(`Delete project "${project.name}" and all its data?`);
+        if (!confirmed) return;
+        setDeleteError(null);
+        setDeleteState({
+            projectId: project.id,
+            projectName: project.name,
+            status: 'starting',
+            progress: 0
+        });
+        try {
+            const res = await fetch(`${API_BASE_URL}/projects/${project.id}`, { method: 'DELETE' });
+            if (!res.ok) {
+                throw new Error('Failed to delete project.');
+            }
+        } catch (err) {
+            setDeleteError(err instanceof Error ? err.message : 'Failed to delete project.');
+            setDeleteState((prev) => (prev ? { ...prev, status: 'error' } : prev));
         }
     };
 
@@ -141,25 +208,55 @@ export const Projects = () => {
                                         <h3 className="font-semibold text-lg">{project.name}</h3>
                                         <div className="text-xs text-secondary font-mono">{project.id}</div>
                                     </div>
-                                    <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onClick={() => navigate(`/projects/${project.id}/dataset`)}
-                                    >
-                                        Open
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => navigate(`/projects/${project.id}/dataset`)}
+                                        >
+                                            Open
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            className="border-accent-error/60 text-accent-error hover:text-white"
+                                            onClick={() => handleDelete(project)}
+                                        >
+                                            Delete
+                                        </Button>
+                                    </div>
                                 </div>
                                 <p className="text-secondary text-sm">
                                     {project.description || 'No description.'}
                                 </p>
-                                <div className="text-xs text-secondary">
-                                    Created at {formatDate(project.created_at)}
+                                <div className="grid gap-2 text-xs text-secondary">
+                                    <div>Created at {formatDate(project.created_at)}</div>
+                                    {project.last_run_at && (
+                                        <div>Last run {formatDate(project.last_run_at)}</div>
+                                    )}
                                 </div>
-                                <div className="text-xs text-secondary">
-                                    Datasets: {project.datasets?.length || 0}
+                                <div className="grid gap-2 sm:grid-cols-2 text-xs">
+                                    <div className="stat-chip">
+                                        <span>Images</span>
+                                        <strong>{project.images_total ?? 0}</strong>
+                                    </div>
+                                    <div className="stat-chip">
+                                        <span>Labeled</span>
+                                        <strong>{project.labeled_images ?? 0}</strong>
+                                    </div>
+                                    <div className="stat-chip">
+                                        <span>Labels</span>
+                                        <strong>{project.labels_total ?? 0}</strong>
+                                    </div>
+                                    <div className="stat-chip">
+                                        <span>Runs</span>
+                                        <strong>{project.runs_total ?? 0}</strong>
+                                    </div>
                                 </div>
-                                <div className="text-xs text-secondary uppercase tracking-[0.3em]">
-                                    {project.analysis_type === 'detection' ? 'Detection' : 'Classification'}
+                                <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.3em] text-secondary">
+                                    <span>{project.analysis_type === 'detection' ? 'Detection' : 'Classification'}</span>
+                                    <span>Classes {project.classes_total ?? 0}</span>
+                                    <span>Sources {project.sources_total ?? 0}</span>
                                 </div>
                             </Card>
                         ))}
@@ -204,6 +301,54 @@ export const Projects = () => {
                     </Card>
                 </div>
             </div>
+            {deleteState && (
+                <div className="modal-backdrop" role="dialog" aria-modal="true">
+                    <div className="modal-card">
+                        <div className="modal-header">
+                            <div>
+                                <div className="text-xs uppercase tracking-[0.4em] text-haze">Deleting project</div>
+                                <div className="text-lg font-semibold">{deleteState.projectName}</div>
+                            </div>
+                            {(deleteState.status === 'completed' || deleteState.status === 'error') && (
+                                <button
+                                    type="button"
+                                    className="window-button"
+                                    onClick={() => setDeleteState(null)}
+                                    aria-label="Close"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+                        <div className="mt-4 text-sm text-secondary">
+                            {deleteState.status === 'completed'
+                                ? 'Project deleted.'
+                                : deleteState.status === 'error'
+                                    ? 'Failed to delete project.'
+                                    : 'Removing files and metadata...'}
+                        </div>
+                        <div className="mt-4 h-2 bg-graphite-700 rounded overflow-hidden">
+                            <div
+                                className="h-full bg-accent-error transition-all duration-300"
+                                style={{ width: `${Math.min(deleteState.progress, 100)}%` }}
+                            />
+                        </div>
+                        <div className="mt-3 text-xs text-secondary">
+                            {deleteState.deleted ?? 0} / {deleteState.total ?? 0} items removed
+                        </div>
+                        {deleteError && (
+                            <div className="mt-3 text-xs text-error">{deleteError}</div>
+                        )}
+                        {(deleteState.status === 'completed' || deleteState.status === 'error') && (
+                            <div className="mt-4 flex justify-end">
+                                <Button size="sm" variant="secondary" onClick={() => setDeleteState(null)}>
+                                    Done
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
