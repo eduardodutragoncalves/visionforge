@@ -41,6 +41,7 @@ interface Dataset {
 }
 
 const API_BASE_URL = ENGINE_HTTP_URL;
+const IMAGE_PAGE_SIZE = 500;
 type SaveStatus = 'idle' | 'saving' | 'pending' | 'saved';
 type PendingSave =
     | { type: 'labels'; imageId: string; labels: number[]; updatedAt: number }
@@ -77,6 +78,8 @@ export const ProjectDataset = () => {
     const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
     const [pendingCount, setPendingCount] = useState(0);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [imageOffset, setImageOffset] = useState(0);
+    const [imageTotal, setImageTotal] = useState(0);
     const thumbSettings = useMemo(() => {
         switch (thumbSize) {
             case 'sm':
@@ -100,6 +103,11 @@ export const ProjectDataset = () => {
         if (saveStatus === 'saved') return 'All changes saved';
         return 'Auto-save ready';
     }, [saveStatus, pendingCount]);
+
+    const applyPagination = (offset: number, total: number) => {
+        setImageOffset(offset);
+        setImageTotal(total);
+    };
     const getImageSrc = (image: DatasetImage) => {
         if (projectId) {
             return `${API_BASE_URL}/projects/${projectId}/dataset/images/${image.id}/file`;
@@ -267,6 +275,35 @@ export const ProjectDataset = () => {
         enqueuePendingBatch([item]);
     };
 
+    const loadImages = async (offset: number, total?: number) => {
+        if (!projectId) return;
+        const imagesRes = await fetch(
+            `${API_BASE_URL}/projects/${projectId}/dataset/images?limit=${IMAGE_PAGE_SIZE}&offset=${offset}`
+        );
+        if (imagesRes.ok) {
+            const nextImages: DatasetImage[] = await imagesRes.json();
+            if (pendingRef.current.length === 0) {
+                const pending = readPendingSaves(projectId);
+                pendingRef.current = pending;
+                setPendingCount(pending.length);
+                if (pending.length > 0) {
+                    setSaveStatus('pending');
+                }
+            }
+            setImages(applyPendingToImages(nextImages, pendingRef.current));
+            if (pendingRef.current.length > 0) {
+                void flushPending();
+            } else {
+                setSaveStatus('saved');
+            }
+            if (typeof total === 'number') {
+                applyPagination(offset, total);
+            } else {
+                setImageOffset(offset);
+            }
+        }
+    };
+
     const fetchDataset = async () => {
         if (!projectId) return;
         setLoading(true);
@@ -275,24 +312,12 @@ export const ProjectDataset = () => {
             if (res.ok) {
                 const data = await res.json();
                 setDataset(data);
-            }
-            const imagesRes = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images?limit=500`);
-            if (imagesRes.ok) {
-                const nextImages: DatasetImage[] = await imagesRes.json();
-                if (pendingRef.current.length === 0) {
-                    const pending = readPendingSaves(projectId);
-                    pendingRef.current = pending;
-                    setPendingCount(pending.length);
-                    if (pending.length > 0) {
-                        setSaveStatus('pending');
-                    }
-                }
-                setImages(applyPendingToImages(nextImages, pendingRef.current));
-                if (pendingRef.current.length > 0) {
-                    void flushPending();
-                } else {
-                    setSaveStatus('saved');
-                }
+                const total = Array.isArray(data.images) ? data.images.length : 0;
+                const offset = Math.max(total - IMAGE_PAGE_SIZE, 0);
+                applyPagination(offset, total);
+                await loadImages(offset, total);
+            } else {
+                await loadImages(imageOffset, imageTotal);
             }
         } finally {
             setLoading(false);
@@ -304,6 +329,8 @@ export const ProjectDataset = () => {
         setPendingCount(0);
         setSaveStatus('idle');
         setSaveError(null);
+        setImageOffset(0);
+        setImageTotal(0);
     }, [projectId]);
 
     useEffect(() => {
@@ -703,9 +730,35 @@ export const ProjectDataset = () => {
                     </div>
 
                     <div className="flex flex-wrap gap-4 text-xs uppercase tracking-[0.3em] text-haze">
-                        <span>Images: {images.length}</span>
+                        <span>Images: {imageTotal || images.length}</span>
                         <span>Classes: {dataset?.classes.length || 0}</span>
                     </div>
+                    {imageTotal > IMAGE_PAGE_SIZE && (
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-secondary">
+                            <span>
+                                Showing {Math.min(imageOffset + 1, imageTotal)}-
+                                {Math.min(imageOffset + images.length, imageTotal)} of {imageTotal}
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => loadImages(Math.max(imageOffset - IMAGE_PAGE_SIZE, 0))}
+                                    disabled={imageOffset === 0}
+                                >
+                                    Earlier
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => loadImages(Math.max(imageTotal - IMAGE_PAGE_SIZE, 0))}
+                                    disabled={imageOffset + images.length >= imageTotal}
+                                >
+                                    Latest
+                                </Button>
+                            </div>
+                        </div>
+                    )}
                 </Card>
 
                 <Card className="space-y-4">
