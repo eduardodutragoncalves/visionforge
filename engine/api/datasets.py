@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from engine.services.dataset_service import dataset_service
+from engine.services.preclassify_service import preclassify_service
 from engine.io import paths
 
 router = APIRouter()
@@ -58,6 +59,11 @@ class IngestVideoRequest(BaseModel):
 
 class DeleteImagesRequest(BaseModel):
     image_ids: List[str]
+
+class PreclassifyRequest(BaseModel):
+    image_ids: List[str]
+    model: Optional[str] = "yolov8n-cls.pt"
+    topk: Optional[int] = 3
 
 @router.get("/projects/{project_id}/dataset")
 async def get_dataset(project_id: str):
@@ -167,6 +173,26 @@ async def ingest_video(project_id: str, request: IngestVideoRequest):
 async def validate_dataset(project_id: str):
     try:
         return await dataset_service.validate_current_dataset(project_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/projects/{project_id}/dataset/preclassify")
+async def preclassify_dataset(project_id: str, request: PreclassifyRequest):
+    try:
+        dataset = dataset_service.get_dataset(project_id)
+        images = dataset.get("images", [])
+        by_id = {img.get("id"): img.get("path") for img in images}
+        targets = [
+            (image_id, by_id[image_id])
+            for image_id in request.image_ids
+            if image_id in by_id
+        ]
+        results = preclassify_service.preclassify_images(
+            targets,
+            request.model or "yolov8n-cls.pt",
+            request.topk or 3
+        )
+        return {"model": request.model, "results": results}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

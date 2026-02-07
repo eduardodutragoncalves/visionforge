@@ -22,6 +22,12 @@ interface BoundingBox {
     h: number;
 }
 
+interface PreclassifyPrediction {
+    class_id: number;
+    class_name: string;
+    confidence: number;
+}
+
 interface DatasetImage {
     id: string;
     path: string;
@@ -81,6 +87,11 @@ export const ProjectDataset = () => {
     const [saveError, setSaveError] = useState<string | null>(null);
     const [imageOffset, setImageOffset] = useState(0);
     const [imageTotal, setImageTotal] = useState(0);
+    const [isPreclassifying, setIsPreclassifying] = useState(false);
+    const [preclassifyModel, setPreclassifyModel] = useState('yolov8n-cls.pt');
+    const [preclassifyTopK, setPreclassifyTopK] = useState(3);
+    const [preclassifyError, setPreclassifyError] = useState<string | null>(null);
+    const [preclassifyResults, setPreclassifyResults] = useState<Record<string, PreclassifyPrediction[]>>({});
     const thumbSettings = useMemo(() => {
         switch (thumbSize) {
             case 'sm':
@@ -329,6 +340,72 @@ export const ProjectDataset = () => {
         }
     };
 
+    const ensureClassId = async (name: string) => {
+        if (!projectId || !dataset) return null;
+        const normalized = name.trim();
+        if (!normalized) return null;
+        const existing = dataset.classes.find(
+            (cls) => cls.name.toLowerCase() === normalized.toLowerCase()
+        );
+        if (existing) return existing.id;
+        const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/classes`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ classes: [...dataset.classes, { name: normalized }] })
+        });
+        if (!res.ok) return null;
+        const updated = await res.json();
+        setDataset(updated);
+        const created = updated.classes.find(
+            (cls: DatasetClass) => cls.name.toLowerCase() === normalized.toLowerCase()
+        );
+        return created?.id ?? null;
+    };
+
+    const runPreclassify = async () => {
+        if (!projectId) return;
+        const targetIds = selectedIds.size > 0
+            ? Array.from(selectedIds)
+            : visibleImages.map((image) => image.id);
+        if (targetIds.length === 0) return;
+        setIsPreclassifying(true);
+        setPreclassifyError(null);
+        try {
+            const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/preclassify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image_ids: targetIds,
+                    model: preclassifyModel,
+                    topk: preclassifyTopK
+                })
+            });
+            if (!res.ok) {
+                throw new Error('Pre-classification failed');
+            }
+            const data = await res.json();
+            const results = data?.results || {};
+            setPreclassifyResults((prev) => {
+                const next = { ...prev };
+                Object.entries(results).forEach(([imageId, payload]) => {
+                    const predictions = (payload as any).predictions || [];
+                    next[imageId] = predictions;
+                });
+                return next;
+            });
+        } catch (err: any) {
+            setPreclassifyError(err?.message || 'Pre-classification failed');
+        } finally {
+            setIsPreclassifying(false);
+        }
+    };
+
+    const handleAcceptPrelabel = async (imageId: string, prediction: PreclassifyPrediction) => {
+        const classId = await ensureClassId(prediction.class_name);
+        if (classId === null) return;
+        await handleAssignClassSingle(imageId, classId);
+    };
+
     useEffect(() => {
         pendingRef.current = [];
         setPendingCount(0);
@@ -336,6 +413,7 @@ export const ProjectDataset = () => {
         setSaveError(null);
         setImageOffset(0);
         setImageTotal(0);
+        setPreclassifyResults({});
     }, [projectId]);
 
     useEffect(() => {
@@ -872,6 +950,9 @@ export const ProjectDataset = () => {
                             {saveError && (
                                 <div className="text-xs text-error">{saveError}</div>
                             )}
+                            {preclassifyError && (
+                                <div className="text-xs text-error">{preclassifyError}</div>
+                            )}
 
                             <div className="flex flex-wrap gap-2">
                                 {classes.map((cls) => (
@@ -896,6 +977,35 @@ export const ProjectDataset = () => {
                                 >
                                     Delete selected
                                 </Button>
+                            </div>
+
+                            <div className="flex flex-wrap items-end gap-3">
+                                <Select
+                                    label="Pre-classify model"
+                                    options={[
+                                        { value: 'yolov8n-cls.pt', label: 'YOLOv8 Nano (cls)' },
+                                        { value: 'yolov8s-cls.pt', label: 'YOLOv8 Small (cls)' },
+                                        { value: 'yolov8m-cls.pt', label: 'YOLOv8 Medium (cls)' }
+                                    ]}
+                                    value={preclassifyModel}
+                                    onChange={(e) => setPreclassifyModel(e.target.value)}
+                                />
+                                <Input
+                                    label="Top K"
+                                    type="number"
+                                    value={preclassifyTopK}
+                                    onChange={(e) => setPreclassifyTopK(Math.max(1, Number(e.target.value) || 1))}
+                                />
+                                <Button
+                                    variant="secondary"
+                                    onClick={runPreclassify}
+                                    disabled={isPreclassifying}
+                                >
+                                    {isPreclassifying ? 'Pre-classifying...' : 'Pre-classify images'}
+                                </Button>
+                                <div className="text-xs text-secondary">
+                                    Uses selected images or the current list.
+                                </div>
                             </div>
 
                             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -975,9 +1085,8 @@ export const ProjectDataset = () => {
                                 }
                             >
                                 {visibleImages.map((image) => (
-                                    <button
+                                    <div
                                         key={image.id}
-                                        type="button"
                                         onClick={(event) => {
                                             if (event.detail > 1) return;
                                             toggleSelected(image.id);
@@ -987,6 +1096,14 @@ export const ProjectDataset = () => {
                                             event.stopPropagation();
                                             setPreviewImageId(image.id);
                                         }}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                toggleSelected(image.id);
+                                            }
+                                        }}
+                                        role="button"
+                                        tabIndex={0}
                                         className={clsx(
                                             'image-card',
                                             imageAspect[image.id] ? `image-card-${imageAspect[image.id]}` : null,
@@ -1004,7 +1121,24 @@ export const ProjectDataset = () => {
                                                 ? `Label: ${image.labels.map((id) => classMap.get(id) || id).join(', ')}`
                                                 : 'Unlabeled'}
                                         </div>
-                                    </button>
+                                        {preclassifyResults[image.id]?.length ? (
+                                            <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.3em] text-secondary">
+                                                {preclassifyResults[image.id].map((prediction) => (
+                                                    <button
+                                                        key={`${image.id}-${prediction.class_id}`}
+                                                        type="button"
+                                                        className="border border-graphite-700/70 bg-graphite-900 px-2 py-1 hover:border-accent-primary"
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            void handleAcceptPrelabel(image.id, prediction);
+                                                        }}
+                                                    >
+                                                        {prediction.class_name} {(prediction.confidence * 100).toFixed(0)}%
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ) : null}
+                                    </div>
                                 ))}
                             </div>
                         </Card>
@@ -1032,6 +1166,20 @@ export const ProjectDataset = () => {
                                     alt={previewImage.id}
                                     className="modal-image"
                                 />
+                                {preclassifyResults[previewImage.id]?.length ? (
+                                    <div className="modal-labels">
+                                        {preclassifyResults[previewImage.id].map((prediction) => (
+                                            <Button
+                                                key={`preview-${prediction.class_id}`}
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={() => handleAcceptPrelabel(previewImage.id, prediction)}
+                                            >
+                                                {prediction.class_name} {(prediction.confidence * 100).toFixed(0)}%
+                                            </Button>
+                                        ))}
+                                    </div>
+                                ) : null}
                                 <div className="modal-labels">
                                     {classes.map((cls) => (
                                         <Button
