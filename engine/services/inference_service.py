@@ -3,7 +3,11 @@ import io
 import logging
 from pathlib import Path
 from PIL import Image
-from ultralytics import YOLO
+
+try:
+    from ultralytics import YOLO
+except Exception:  # pragma: no cover - optional dependency
+    YOLO = None
 
 logger = logging.getLogger("VisionForge.Inference")
 
@@ -13,6 +17,8 @@ class InferenceService:
         self._loaded_variant_path = None
 
     def load_model(self, variant_path: Path):
+        if YOLO is None:
+            raise RuntimeError("Ultralytics is not installed in the engine environment.")
         model_path = variant_path / "model.pt"
         if not model_path.exists():
             raise FileNotFoundError(f"Model weights not found at {model_path}")
