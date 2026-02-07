@@ -41,6 +41,10 @@ interface Dataset {
 }
 
 const API_BASE_URL = ENGINE_HTTP_URL;
+type SaveStatus = 'idle' | 'saving' | 'pending' | 'saved';
+type PendingSave =
+    | { type: 'labels'; imageId: string; labels: number[]; updatedAt: number }
+    | { type: 'boxes'; imageId: string; boxes: BoundingBox[]; updatedAt: number };
 
 const toFileUrl = (path: string) => {
     const normalized = path.replace(/\\/g, '/');
@@ -70,11 +74,32 @@ export const ProjectDataset = () => {
     const [draftBox, setDraftBox] = useState<BoundingBox | null>(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [imageAspect, setImageAspect] = useState<Record<string, 'portrait' | 'landscape' | 'square'>>({});
+    const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+    const [pendingCount, setPendingCount] = useState(0);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const thumbSettings = useMemo(() => {
+        switch (thumbSize) {
+            case 'sm':
+                return { min: 120, height: 88 };
+            case 'xl':
+                return { min: 210, height: 160 };
+            default:
+                return { min: 160, height: 120 };
+        }
+    }, [thumbSize]);
     const imageRef = useRef<HTMLImageElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const pendingRef = useRef<PendingSave[]>([]);
+    const flushRef = useRef(false);
     const classes = dataset?.classes ?? [];
 
     const classMap = useMemo(() => new Map(classes.map((cls) => [cls.id, cls.name])), [classes]);
+    const saveStatusLabel = useMemo(() => {
+        if (saveStatus === 'saving') return 'Saving...';
+        if (saveStatus === 'pending') return pendingCount > 0 ? `Pending (${pendingCount})` : 'Pending';
+        if (saveStatus === 'saved') return 'All changes saved';
+        return 'Auto-save ready';
+    }, [saveStatus, pendingCount]);
     const getImageSrc = (image: DatasetImage) => {
         if (projectId) {
             return `${API_BASE_URL}/projects/${projectId}/dataset/images/${image.id}/file`;
@@ -98,6 +123,14 @@ export const ProjectDataset = () => {
         () => images.filter((image) => image.labels.length === 0),
         [images]
     );
+    const labeledCounts = useMemo(() => {
+        const counts = new Map<number, number>();
+        classes.forEach((cls) => counts.set(cls.id, 0));
+        labeledImages.forEach((image) => {
+            image.labels.forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
+        });
+        return counts;
+    }, [classes, labeledImages]);
     const visibleImages = classificationTab === 'labeled' ? labeledImages : unlabeledImages;
 
     const handleThumbLoad = (imageId: string, event: React.SyntheticEvent<HTMLImageElement>) => {
@@ -107,6 +140,131 @@ export const ProjectDataset = () => {
         const nextAspect: 'portrait' | 'landscape' | 'square' =
             ratio > 1.15 ? 'landscape' : ratio < 0.85 ? 'portrait' : 'square';
         setImageAspect((prev) => (prev[imageId] === nextAspect ? prev : { ...prev, [imageId]: nextAspect }));
+    };
+
+    const getPendingKey = (id: string) => `visionforge.dataset.pending.${id}`;
+
+    const readPendingSaves = (id: string): PendingSave[] => {
+        if (typeof window === 'undefined') return [];
+        try {
+            const raw = window.localStorage.getItem(getPendingKey(id));
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return [];
+            return parsed.filter(
+                (item) =>
+                    item &&
+                    (item.type === 'labels' || item.type === 'boxes') &&
+                    typeof item.imageId === 'string'
+            );
+        } catch {
+            return [];
+        }
+    };
+
+    const writePendingSaves = (id: string, items: PendingSave[]) => {
+        if (typeof window === 'undefined') return;
+        const key = getPendingKey(id);
+        if (items.length === 0) {
+            window.localStorage.removeItem(key);
+            return;
+        }
+        window.localStorage.setItem(key, JSON.stringify(items));
+    };
+
+    const applyPendingToImages = (base: DatasetImage[], pending: PendingSave[]) => {
+        if (pending.length === 0) return base;
+        const byId = new Map(base.map((image) => [image.id, image]));
+        pending.forEach((item) => {
+            const image = byId.get(item.imageId);
+            if (!image) return;
+            if (item.type === 'labels') {
+                byId.set(item.imageId, { ...image, labels: item.labels });
+            } else {
+                byId.set(item.imageId, { ...image, boxes: item.boxes });
+            }
+        });
+        return Array.from(byId.values());
+    };
+
+    const updatePendingStore = (next: PendingSave[]) => {
+        pendingRef.current = next;
+        if (projectId) {
+            writePendingSaves(projectId, next);
+        }
+        setPendingCount(next.length);
+    };
+
+    const flushPending = async () => {
+        if (!projectId || flushRef.current) return;
+        if (pendingRef.current.length === 0) {
+            setSaveStatus('saved');
+            setSaveError(null);
+            return;
+        }
+        flushRef.current = true;
+        setSaveStatus('saving');
+        setSaveError(null);
+        while (pendingRef.current.length > 0) {
+            const item = pendingRef.current[0];
+            try {
+                let res: Response;
+                if (item.type === 'labels') {
+                    res = await fetch(
+                        `${API_BASE_URL}/projects/${projectId}/dataset/images/${item.imageId}/labels`,
+                        {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ labels: item.labels })
+                        }
+                    );
+                } else {
+                    res = await fetch(
+                        `${API_BASE_URL}/projects/${projectId}/dataset/images/${item.imageId}/boxes`,
+                        {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ boxes: item.boxes })
+                        }
+                    );
+                }
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+                const remaining = pendingRef.current.slice(1);
+                updatePendingStore(remaining);
+            } catch {
+                setSaveStatus('pending');
+                setSaveError('Auto-save paused. Will retry on next change.');
+                flushRef.current = false;
+                return;
+            }
+        }
+        flushRef.current = false;
+        setSaveStatus('saved');
+        setSaveError(null);
+    };
+
+    const enqueuePendingBatch = (items: PendingSave[]) => {
+        if (!projectId || items.length === 0) return;
+        const next = pendingRef.current.slice();
+        items.forEach((item) => {
+            const existingIndex = next.findIndex(
+                (entry) => entry.type === item.type && entry.imageId === item.imageId
+            );
+            if (existingIndex >= 0) {
+                next.splice(existingIndex, 1);
+            }
+            next.push(item);
+        });
+        updatePendingStore(next);
+        setSaveStatus('pending');
+        setSaveError(null);
+        void flushPending();
+    };
+
+    const enqueuePending = (item: PendingSave) => {
+        enqueuePendingBatch([item]);
     };
 
     const fetchDataset = async () => {
@@ -120,12 +278,33 @@ export const ProjectDataset = () => {
             }
             const imagesRes = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images?limit=500`);
             if (imagesRes.ok) {
-                setImages(await imagesRes.json());
+                const nextImages: DatasetImage[] = await imagesRes.json();
+                if (pendingRef.current.length === 0) {
+                    const pending = readPendingSaves(projectId);
+                    pendingRef.current = pending;
+                    setPendingCount(pending.length);
+                    if (pending.length > 0) {
+                        setSaveStatus('pending');
+                    }
+                }
+                setImages(applyPendingToImages(nextImages, pendingRef.current));
+                if (pendingRef.current.length > 0) {
+                    void flushPending();
+                } else {
+                    setSaveStatus('saved');
+                }
             }
         } finally {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        pendingRef.current = [];
+        setPendingCount(0);
+        setSaveStatus('idle');
+        setSaveError(null);
+    }, [projectId]);
 
     useEffect(() => {
         fetchDataset();
@@ -267,31 +446,31 @@ export const ProjectDataset = () => {
     const handleAssignClass = async (classId: number) => {
         if (!projectId || selectedIds.size === 0) return;
         const ids = Array.from(selectedIds);
-        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/labels`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_ids: ids, labels: [classId] })
-        });
         setImages((prev) =>
             prev.map((image) =>
                 ids.includes(image.id) ? { ...image, labels: [classId] } : image
             )
         );
+        const updatedAt = Date.now();
+        enqueuePendingBatch(
+            ids.map((id) => ({ type: 'labels', imageId: id, labels: [classId], updatedAt }))
+        );
+        setSelectedIds(new Set());
     };
 
     const handleClearLabels = async () => {
         if (!projectId || selectedIds.size === 0) return;
         const ids = Array.from(selectedIds);
-        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/labels`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_ids: ids, labels: [] })
-        });
         setImages((prev) =>
             prev.map((image) =>
                 ids.includes(image.id) ? { ...image, labels: [] } : image
             )
         );
+        const updatedAt = Date.now();
+        enqueuePendingBatch(
+            ids.map((id) => ({ type: 'labels', imageId: id, labels: [], updatedAt }))
+        );
+        setSelectedIds(new Set());
     };
 
     const handleDeleteImages = async (imageIds: string[]) => {
@@ -305,6 +484,13 @@ export const ProjectDataset = () => {
         });
         if (!res.ok) return;
         setImages((prev) => prev.filter((image) => !imageIds.includes(image.id)));
+        if (pendingRef.current.length > 0) {
+            const remaining = pendingRef.current.filter((item) => !imageIds.includes(item.imageId));
+            updatePendingStore(remaining);
+            if (remaining.length === 0 && !flushRef.current) {
+                setSaveStatus('saved');
+            }
+        }
         if (activeImageId && imageIds.includes(activeImageId)) {
             setActiveImageId(null);
         }
@@ -320,28 +506,20 @@ export const ProjectDataset = () => {
 
     const handleAssignClassSingle = async (imageId: string, classId: number) => {
         if (!projectId) return;
-        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}/labels`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ labels: [classId] })
-        });
         setImages((prev) =>
             prev.map((image) =>
                 image.id === imageId ? { ...image, labels: [classId] } : image
             )
         );
+        enqueuePending({ type: 'labels', imageId, labels: [classId], updatedAt: Date.now() });
     };
 
     const handleClearLabelsSingle = async (imageId: string) => {
         if (!projectId) return;
-        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}/labels`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ labels: [] })
-        });
         setImages((prev) =>
             prev.map((image) => (image.id === imageId ? { ...image, labels: [] } : image))
         );
+        enqueuePending({ type: 'labels', imageId, labels: [], updatedAt: Date.now() });
     };
 
     const handleDeleteImage = async (imageId: string) => {
@@ -350,14 +528,10 @@ export const ProjectDataset = () => {
 
     const updateBoxes = async (imageId: string, boxes: BoundingBox[]) => {
         if (!projectId) return;
-        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}/boxes`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ boxes })
-        });
         setImages((prev) =>
             prev.map((image) => (image.id === imageId ? { ...image, boxes } : image))
         );
+        enqueuePending({ type: 'boxes', imageId, boxes, updatedAt: Date.now() });
     };
 
     const drawBoxes = (boxes: BoundingBox[], draft?: BoundingBox | null) => {
@@ -621,7 +795,7 @@ export const ProjectDataset = () => {
             ) : (
                 <>
             {dataset && dataset.task === 'classification' && (
-                        <Card className="space-y-4">
+                        <Card className="space-y-4 flex flex-col min-h-[calc(100vh-320px)]">
                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                 <div>
                                     <h3 className="text-lg font-semibold">Classification labeling</h3>
@@ -629,10 +803,14 @@ export const ProjectDataset = () => {
                                         Select images and assign a class in batch.
                                     </p>
                                 </div>
-                                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-haze">
+                                <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.3em] text-haze">
                                     Selected: {totalSelected}
+                                    <span className="text-secondary">{saveStatusLabel}</span>
                                 </div>
                             </div>
+                            {saveError && (
+                                <div className="text-xs text-error">{saveError}</div>
+                            )}
 
                             <div className="flex flex-wrap gap-2">
                                 {classes.map((cls) => (
@@ -698,8 +876,28 @@ export const ProjectDataset = () => {
                                     </div>
                                 </div>
                             </div>
+                            {classificationTab === 'labeled' && (
+                                <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.3em] text-secondary">
+                                    {classes.map((cls) => (
+                                        <span
+                                            key={`count-${cls.id}`}
+                                            className="border border-graphite-700/70 bg-graphite-900 px-3 py-1"
+                                        >
+                                            {cls.name}: {labeledCounts.get(cls.id) || 0}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
 
-                            <div className={clsx('image-grid', `image-grid-${thumbSize}`)}>
+                            <div
+                                className={clsx('image-grid', `image-grid-${thumbSize}`, 'flex-1 min-h-0')}
+                                style={
+                                    {
+                                        gridTemplateColumns: `repeat(auto-fill, minmax(${thumbSettings.min}px, 1fr))`,
+                                        '--thumb-height': `${thumbSettings.height}px`
+                                    } as React.CSSProperties
+                                }
+                            >
                                 {visibleImages.map((image) => (
                                     <button
                                         key={image.id}
@@ -808,13 +1006,21 @@ export const ProjectDataset = () => {
                                         Select an image, choose a class, and draw bounding boxes.
                                     </p>
                                 </div>
-                                <Select
-                                    label="Active class"
-                                    options={classes.map((cls) => ({ value: String(cls.id), label: cls.name }))}
-                                    value={activeClassId !== null ? String(activeClassId) : ''}
-                                    onChange={(e) => setActiveClassId(Number(e.target.value))}
-                                />
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <span className="text-xs uppercase tracking-[0.3em] text-secondary">
+                                        {saveStatusLabel}
+                                    </span>
+                                    <Select
+                                        label="Active class"
+                                        options={classes.map((cls) => ({ value: String(cls.id), label: cls.name }))}
+                                        value={activeClassId !== null ? String(activeClassId) : ''}
+                                        onChange={(e) => setActiveClassId(Number(e.target.value))}
+                                    />
+                                </div>
                             </div>
+                            {saveError && (
+                                <div className="text-xs text-error">{saveError}</div>
+                            )}
 
                             <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
                                 <div className="space-y-2">

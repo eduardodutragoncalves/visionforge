@@ -347,8 +347,9 @@
     grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--thumb-min)), 1fr));
     align-content: start;
     width: 100%;
-    min-height: 240px;
-    max-height: min(62vh, 600px);
+    min-height: 260px;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-right: 6px;
@@ -440,46 +441,26 @@
     box-shadow: 0 0 8px rgba(246, 183, 60, 0.6);
   }
 
-  .splash-screen {
-    @apply absolute inset-0 top-16 z-50 flex items-center justify-center bg-graphite-950/95;
+  .splash-inline {
+    @apply relative flex justify-end px-8 pt-4;
   }
 
-  .splash-card {
-    @apply relative border border-graphite-700/70 bg-graphite-900 px-10 py-8 text-center shadow-card;
-    min-width: 320px;
-    border-radius: 18px;
+  .splash-inline-card {
+    @apply border border-graphite-700/70 bg-graphite-900 px-6 py-3 shadow-card;
+    border-radius: 14px;
+    min-width: 260px;
   }
 
-  .splash-card::after {
-    content: "";
-    position: absolute;
-    right: -12px;
-    top: 12px;
-    width: 24px;
-    height: 2px;
-    background: #2fb8ff;
-  }
-
-  .splash-logo {
-    @apply mx-auto mb-4 flex h-12 w-12 items-center justify-center bg-accent-primary text-white font-semibold text-lg;
-    border-radius: 16px;
-    letter-spacing: 0.15em;
-  }
-
-  .splash-title {
-    @apply text-2xl font-semibold tracking-[0.3em] uppercase;
-  }
-
-  .splash-subtitle {
-    @apply mt-2 text-xs uppercase tracking-[0.4em] text-haze;
+  .splash-inline-title {
+    @apply text-[11px] uppercase tracking-[0.35em] text-haze;
   }
 
   .splash-loader {
-    @apply mt-6 flex items-center justify-center gap-3 text-xs uppercase tracking-[0.3em] text-haze;
+    @apply mt-2 flex items-center gap-3 text-[10px] uppercase tracking-[0.3em] text-haze;
   }
 
   .splash-progress {
-    @apply relative mt-4 h-1 w-48 overflow-hidden bg-graphite-700;
+    @apply relative mt-3 h-1 w-full overflow-hidden bg-graphite-700;
   }
 
   .splash-progress::after {
