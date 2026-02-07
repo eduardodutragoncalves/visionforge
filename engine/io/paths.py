@@ -1,9 +1,15 @@
 import os
 from pathlib import Path
 
-# Base workspace path (relative to engine execution or absolute)
-# In production, this might be configurable via env path
-WORKSPACE_ROOT = Path("workspace").absolute()
+def _resolve_workspace_root() -> Path:
+    env_value = os.environ.get("VISIONFORGE_WORKSPACE")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    repo_root = Path(__file__).resolve().parents[2]
+    return (repo_root / "workspace").resolve()
+
+# Base workspace path (deterministic, not tied to current working directory)
+WORKSPACE_ROOT = _resolve_workspace_root()
 
 def get_workspace_root() -> Path:
     return WORKSPACE_ROOT

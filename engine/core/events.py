@@ -36,8 +36,6 @@ class ConnectionManager:
                 await connection.send_text(json_msg)
             except Exception as e:
                 logger.error(f"Error sending to websocket: {e}")
-                start_cleanup = True 
-                # In a real robust system we might cleanup here, 
-                # but usually disconnect() handles it via endpoint exception
+                self.disconnect(connection)
 
 manager = ConnectionManager()
