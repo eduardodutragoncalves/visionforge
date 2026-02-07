@@ -88,6 +88,13 @@ async def get_image_file(project_id: str, image_id: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.delete("/projects/{project_id}/dataset/images/{image_id}")
+async def delete_image(project_id: str, image_id: str):
+    try:
+        return dataset_service.delete_image(project_id, image_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.put("/projects/{project_id}/dataset")
 async def update_dataset_config(project_id: str, request: DatasetConfigRequest):
     try:

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import clsx from 'clsx';
 import { FolderOpen, Image, Film, Plus, X } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -61,6 +62,7 @@ export const ProjectDataset = () => {
     const [newClassName, setNewClassName] = useState('');
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [activeImageId, setActiveImageId] = useState<string | null>(null);
+    const [previewImageId, setPreviewImageId] = useState<string | null>(null);
     const [activeClassId, setActiveClassId] = useState<number | null>(null);
     const [frameInterval, setFrameInterval] = useState(30);
     const [draftBox, setDraftBox] = useState<BoundingBox | null>(null);
@@ -80,6 +82,10 @@ export const ProjectDataset = () => {
     const selectedImage = useMemo(
         () => images.find((image) => image.id === activeImageId) || null,
         [images, activeImageId]
+    );
+    const previewImage = useMemo(
+        () => images.find((image) => image.id === previewImageId) || null,
+        [images, previewImageId]
     );
 
     const fetchDataset = async () => {
@@ -267,6 +273,55 @@ export const ProjectDataset = () => {
         );
     };
 
+    const handleAssignClassSingle = async (imageId: string, classId: number) => {
+        if (!projectId) return;
+        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}/labels`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ labels: [classId] })
+        });
+        setImages((prev) =>
+            prev.map((image) =>
+                image.id === imageId ? { ...image, labels: [classId] } : image
+            )
+        );
+    };
+
+    const handleClearLabelsSingle = async (imageId: string) => {
+        if (!projectId) return;
+        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}/labels`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ labels: [] })
+        });
+        setImages((prev) =>
+            prev.map((image) => (image.id === imageId ? { ...image, labels: [] } : image))
+        );
+    };
+
+    const handleDeleteImage = async (imageId: string) => {
+        if (!projectId) return;
+        const confirmed = window.confirm('Delete this image from the project?');
+        if (!confirmed) return;
+        const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}`, {
+            method: 'DELETE'
+        });
+        if (!res.ok) return;
+        const remaining = images.filter((image) => image.id !== imageId);
+        setImages(remaining);
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(imageId);
+            return next;
+        });
+        if (activeImageId === imageId) {
+            setActiveImageId(remaining[0]?.id ?? null);
+        }
+        if (previewImageId === imageId) {
+            setPreviewImageId(null);
+        }
+    };
+
     const updateBoxes = async (imageId: string, boxes: BoundingBox[]) => {
         if (!projectId) return;
         await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}/boxes`, {
@@ -371,6 +426,17 @@ export const ProjectDataset = () => {
     };
 
     const totalSelected = selectedIds.size;
+
+    useEffect(() => {
+        if (!previewImageId) return;
+        const handleKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setPreviewImageId(null);
+            }
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [previewImageId]);
 
     return (
         <div className="animate-fade-in space-y-6">
@@ -560,13 +626,14 @@ export const ProjectDataset = () => {
                                         key={image.id}
                                         type="button"
                                         onClick={() => toggleSelected(image.id)}
+                                        onDoubleClick={() => setPreviewImageId(image.id)}
                                         className={`border-2 ${selectedIds.has(image.id) ? 'border-accent-primary' : 'border-graphite-700'} bg-graphite-900 p-2 text-left`}
                                     >
-                                            <img
-                                                src={getImageSrc(image)}
-                                                alt={image.id}
-                                                className="h-24 w-full object-cover"
-                                            />
+                                        <img
+                                            src={getImageSrc(image)}
+                                            alt={image.id}
+                                            className="h-28 w-full object-contain bg-graphite-950/60"
+                                        />
                                         <div className="mt-2 text-xs text-secondary">
                                             {image.labels.length > 0
                                                 ? `Label: ${image.labels.map((id) => classMap.get(id) || id).join(', ')}`
@@ -576,6 +643,69 @@ export const ProjectDataset = () => {
                                 ))}
                             </div>
                         </Card>
+                    )}
+
+                    {previewImage && dataset?.task === 'classification' && (
+                        <div className="modal-backdrop" role="dialog" aria-modal="true">
+                            <div className="modal-card">
+                                <div className="modal-header">
+                                    <div>
+                                        <div className="text-xs uppercase tracking-[0.4em] text-haze">Preview</div>
+                                        <div className="text-lg font-semibold">{previewImage.id}</div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="window-button"
+                                        onClick={() => setPreviewImageId(null)}
+                                        aria-label="Close"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                                <img
+                                    src={getImageSrc(previewImage)}
+                                    alt={previewImage.id}
+                                    className="modal-image"
+                                />
+                                <div className="modal-labels">
+                                    {classes.map((cls) => (
+                                        <Button
+                                            key={cls.id}
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => handleAssignClassSingle(previewImage.id, cls.id)}
+                                            className={clsx(
+                                                previewImage.labels.includes(cls.id) && 'border-accent-primary text-white'
+                                            )}
+                                        >
+                                            {cls.name}
+                                        </Button>
+                                    ))}
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleClearLabelsSingle(previewImage.id)}
+                                    >
+                                        Clear label
+                                    </Button>
+                                </div>
+                                <div className="modal-actions">
+                                    <div className="text-xs text-secondary">
+                                        {previewImage.labels.length > 0
+                                            ? `Label: ${previewImage.labels.map((id) => classMap.get(id) || id).join(', ')}`
+                                            : 'Unlabeled'}
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        className="border-accent-error/60 text-accent-error hover:text-white"
+                                        onClick={() => handleDeleteImage(previewImage.id)}
+                                    >
+                                        Delete image
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
                     )}
 
                             {dataset && dataset.task === 'detection' && (

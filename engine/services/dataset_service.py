@@ -309,6 +309,31 @@ class DatasetService:
                 return image
         raise ValueError("Image not found")
 
+    def delete_image(self, project_id: str, image_id: str) -> Dict[str, Any]:
+        dataset = self._load_or_create_dataset(project_id)
+        images = dataset.get("images", [])
+        target = None
+        for image in images:
+            if image["id"] == image_id:
+                target = image
+                break
+        if not target:
+            raise ValueError("Image not found")
+
+        image_path = Path(target["path"])
+        dataset_dir = paths.get_project_dataset_dir(project_id).resolve()
+        resolved_path = image_path.resolve()
+        if str(resolved_path).startswith(str(dataset_dir)) and resolved_path.exists():
+            try:
+                resolved_path.unlink()
+            except OSError:
+                logger.warning("Unable to delete image file: %s", resolved_path)
+
+        dataset["images"] = [img for img in images if img["id"] != image_id]
+        dataset["updated_at"] = _now()
+        manifests.save_manifest(paths.get_dataset_manifest_path(project_id), dataset, "dataset")
+        return {"deleted": True, "image_id": image_id}
+
     async def validate_current_dataset(self, project_id: str):
         dataset = self._load_or_create_dataset(project_id)
         root_path = dataset.get("root_path")
