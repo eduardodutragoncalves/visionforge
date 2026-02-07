@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 interface GpuState {
+    index: number;
     name: string;
     memoryUsed: number;
     memoryTotal: number;
@@ -8,13 +9,20 @@ interface GpuState {
     temperature: number;
 }
 
+interface GpuTimelineEntry {
+    timestamp: number;
+    gpus: GpuState[];
+}
+
 interface EngineState {
     isConnected: boolean;
     status: 'offline' | 'idle' | 'busy';
     gpu: GpuState;
+    gpus: GpuState[];
+    gpuTimeline: GpuTimelineEntry[];
 
     setConnected: (connected: boolean) => void;
-    updateGpu: (stats: Partial<GpuState>) => void;
+    setGpuStats: (gpus: GpuState[], timestamp: number) => void;
     setEngineStatus: (status: EngineState['status']) => void;
 }
 
@@ -22,14 +30,23 @@ export const useEngineStore = create<EngineState>((set) => ({
     isConnected: false,
     status: 'offline',
     gpu: {
+        index: 0,
         name: 'N/A',
         memoryUsed: 0,
         memoryTotal: 0,
         utilization: 0,
         temperature: 0
     },
+    gpus: [],
+    gpuTimeline: [],
 
     setConnected: (connected) => set({ isConnected: connected, status: connected ? 'idle' : 'offline' }),
     setEngineStatus: (status) => set({ status }),
-    updateGpu: (stats) => set((state) => ({ gpu: { ...state.gpu, ...stats } }))
+    setGpuStats: (gpus, timestamp) =>
+        set((state) => {
+            const entry: GpuTimelineEntry = { timestamp, gpus };
+            const timeline = [...state.gpuTimeline, entry].slice(-300);
+            const primary = gpus[0] ?? state.gpu;
+            return { gpus, gpu: primary, gpuTimeline: timeline };
+        })
 }));

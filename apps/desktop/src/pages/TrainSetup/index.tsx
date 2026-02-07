@@ -10,7 +10,7 @@ import { ENGINE_HTTP_URL } from '../../lib/engine';
 export const TrainSetup = () => {
     const { projectId } = useParams();
     const navigate = useNavigate();
-    const gpu = useEngineStore(state => state.gpu);
+    const { gpu, gpus } = useEngineStore(state => ({ gpu: state.gpu, gpus: state.gpus }));
 
     const [loading, setLoading] = useState(false);
     const [config, setConfig] = useState({
@@ -29,14 +29,15 @@ export const TrainSetup = () => {
 
     const gpuDevices = gpuSelection === 'dual' ? [0, 1] : [gpuSelection === 'gpu1' ? 1 : 0];
     const vramScale = gpuSelection === 'dual' ? 2 : 1;
-    const displayMemoryTotal = (gpu.memoryTotal || 0) * vramScale;
-    const displayMemoryUsed = (gpu.memoryUsed || 0) * vramScale;
+    const primaryGpu = gpus[0] ?? gpu;
+    const displayMemoryTotal = (primaryGpu.memoryTotal || 0) * vramScale;
+    const displayMemoryUsed = (primaryGpu.memoryUsed || 0) * vramScale;
 
     // Advisors Logic
     useEffect(() => {
         if (target === 'local') {
             const vramRequiredEst = config.batch_size * 0.15; // Rough heuristic (GB) for YoloV8n
-            const vramAvailable = ((gpu.memoryTotal || 10) * vramScale) / 1024; // Convert MB to GB (Mock is MB)
+            const vramAvailable = ((primaryGpu.memoryTotal || 10) * vramScale) / 1024;
 
             if (vramRequiredEst > vramAvailable * 0.8) {
                 setAdvice("Warning: High batch size for available VRAM. OOM likely.");
@@ -44,7 +45,7 @@ export const TrainSetup = () => {
                 setAdvice(null);
             }
         }
-    }, [config.batch_size, gpu.memoryTotal, target]);
+    }, [config.batch_size, primaryGpu.memoryTotal, target]);
 
     const handleStart = async () => {
         setLoading(true);

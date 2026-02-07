@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { useTrainingStore } from '../../store/trainingStore';
 import { TrainingChart } from '../../components/training/TrainingChart';
+import { GpuCharts } from '../../components/training/GpuCharts';
 import { LogViewer } from '../../components/training/LogViewer';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -70,6 +71,11 @@ export const LiveRun = () => {
                     </Card>
                 </div>
             </div>
+
+            <Card className="h-full flex flex-col">
+                <h3 className="mb-4">GPU Usage</h3>
+                <GpuCharts />
+            </Card>
         </div>
     );
 };

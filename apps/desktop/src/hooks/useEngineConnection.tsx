@@ -5,7 +5,7 @@ import { ENGINE_WS_URL } from '../lib/engine';
 
 export const useEngineConnection = () => {
     const wsRef = useRef<WebSocket | null>(null);
-    const { setConnected, updateGpu } = useEngineStore();
+    const { setConnected, setGpuStats } = useEngineStore();
     const { addMetric, addLog, setStatus, startRun } = useTrainingStore();
 
     useEffect(() => {
@@ -16,8 +16,6 @@ export const useEngineConnection = () => {
             ws.onopen = () => {
                 setConnected(true);
                 console.log("WS Connected");
-                // Mock GPU update on connection
-                updateGpu({ name: "NVIDIA RTX 4090 (Mock)", memoryTotal: 24576 });
             };
 
             ws.onclose = () => {
@@ -32,6 +30,17 @@ export const useEngineConnection = () => {
                     if (msg.event === 'train/metrics') {
                         addMetric(msg.data);
                         setStatus('training');
+                    } else if (msg.event === 'engine/gpu_stats') {
+                        const gpus = (msg.data?.gpus || []).map((gpu: any) => ({
+                            index: gpu.index ?? 0,
+                            name: gpu.name ?? 'GPU',
+                            utilization: gpu.utilization ?? 0,
+                            memoryUsed: gpu.memory_used ?? gpu.memoryUsed ?? 0,
+                            memoryTotal: gpu.memory_total ?? gpu.memoryTotal ?? 0,
+                            temperature: gpu.temperature ?? 0
+                        }));
+                        gpus.sort((a: any, b: any) => a.index - b.index);
+                        setGpuStats(gpus, msg.data?.timestamp ?? Date.now() / 1000);
                     } else if (msg.event === 'train/logs') {
                         addLog({
                             timestamp: new Date().toLocaleTimeString(),
