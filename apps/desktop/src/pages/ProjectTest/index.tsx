@@ -6,13 +6,14 @@ import { Upload, Camera, Zap } from 'lucide-react';
 import { ENGINE_HTTP_URL } from '../../lib/engine';
 
 interface Prediction {
-    box: number[]; // x1, y1, x2, y2
+    box?: number[]; // x1, y1, x2, y2
     confidence: number;
     class_name: string;
     class_id: number;
 }
 
 interface InferenceResult {
+    task?: 'detect' | 'classify';
     predictions: Prediction[];
     latency_ms: number;
     fps_est: number;
@@ -93,6 +94,19 @@ export const ProjectTest = () => {
     // Draw Overlay
     useEffect(() => {
         if (imageSrc && result && imgRef.current && canvasRef.current) {
+            if (result.task === 'classify') {
+                const img = imgRef.current;
+                const canvas = canvasRef.current;
+                if (img && canvas) {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                }
+                const ctx = canvasRef.current.getContext('2d');
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                }
+                return;
+            }
             const img = imgRef.current;
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
@@ -112,6 +126,7 @@ export const ProjectTest = () => {
 
             // Draw boxes
             result.predictions.forEach(p => {
+                if (!p.box) return;
                 const [x1, y1, x2, y2] = p.box;
 
                 // Scale coordinates
@@ -192,17 +207,32 @@ export const ProjectTest = () => {
                                     <div className="text-xl font-mono">{result.fps_est.toFixed(0)}</div>
                                 </div>
                             </div>
-                            <div className="bg-white/5 p-3 rounded">
-                                <div className="text-xs text-secondary mb-2">Detections</div>
-                                <div className="flex flex-wrap gap-2">
-                                    {result.predictions.map((p, i) => (
-                                        <span key={i} className="text-xs px-2 py-1 rounded bg-accent-primary/20 text-accent-primary">
-                                            {p.class_name}
-                                        </span>
-                                    ))}
-                                    {result.predictions.length === 0 && <span className="text-xs text-secondary">None</span>}
+                            {result.task === 'classify' ? (
+                                <div className="bg-white/5 p-3 rounded">
+                                    <div className="text-xs text-secondary mb-2">Top Predictions</div>
+                                    <div className="space-y-2">
+                                        {result.predictions.map((p, i) => (
+                                            <div key={i} className="flex items-center justify-between text-xs">
+                                                <span className="text-secondary">{p.class_name}</span>
+                                                <span className="text-bone font-mono">{(p.confidence * 100).toFixed(1)}%</span>
+                                            </div>
+                                        ))}
+                                        {result.predictions.length === 0 && <span className="text-xs text-secondary">None</span>}
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className="bg-white/5 p-3 rounded">
+                                    <div className="text-xs text-secondary mb-2">Detections</div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {result.predictions.map((p, i) => (
+                                            <span key={i} className="text-xs px-2 py-1 rounded bg-accent-primary/20 text-accent-primary">
+                                                {p.class_name}
+                                            </span>
+                                        ))}
+                                        {result.predictions.length === 0 && <span className="text-xs text-secondary">None</span>}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </Card>
