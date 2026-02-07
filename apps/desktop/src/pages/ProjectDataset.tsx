@@ -70,6 +70,7 @@ export const ProjectDataset = () => {
     const [previewImageId, setPreviewImageId] = useState<string | null>(null);
     const [activeClassId, setActiveClassId] = useState<number | null>(null);
     const [classificationTab, setClassificationTab] = useState<'unlabeled' | 'labeled'>('unlabeled');
+    const [labeledClassFilter, setLabeledClassFilter] = useState<number | null>(null);
     const [thumbSize, setThumbSize] = useState<'sm' | 'lg' | 'xl'>('lg');
     const [frameInterval, setFrameInterval] = useState(30);
     const [draftBox, setDraftBox] = useState<BoundingBox | null>(null);
@@ -131,6 +132,10 @@ export const ProjectDataset = () => {
         () => images.filter((image) => image.labels.length === 0),
         [images]
     );
+    const filteredLabeledImages = useMemo(() => {
+        if (labeledClassFilter === null) return labeledImages;
+        return labeledImages.filter((image) => image.labels.includes(labeledClassFilter));
+    }, [labeledImages, labeledClassFilter]);
     const labeledCounts = useMemo(() => {
         const counts = new Map<number, number>();
         classes.forEach((cls) => counts.set(cls.id, 0));
@@ -139,7 +144,7 @@ export const ProjectDataset = () => {
         });
         return counts;
     }, [classes, labeledImages]);
-    const visibleImages = classificationTab === 'labeled' ? labeledImages : unlabeledImages;
+    const visibleImages = classificationTab === 'labeled' ? filteredLabeledImages : unlabeledImages;
 
     const handleThumbLoad = (imageId: string, event: React.SyntheticEvent<HTMLImageElement>) => {
         const target = event.currentTarget;
@@ -667,6 +672,9 @@ export const ProjectDataset = () => {
 
     useEffect(() => {
         setSelectedIds(new Set());
+        if (classificationTab !== 'labeled') {
+            setLabeledClassFilter(null);
+        }
     }, [classificationTab]);
 
     return (
@@ -931,13 +939,28 @@ export const ProjectDataset = () => {
                             </div>
                             {classificationTab === 'labeled' && (
                                 <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.3em] text-secondary">
+                                    <button
+                                        type="button"
+                                        className={clsx(
+                                            'tab-button',
+                                            labeledClassFilter === null && 'tab-button-active'
+                                        )}
+                                        onClick={() => setLabeledClassFilter(null)}
+                                    >
+                                        All ({labeledImages.length})
+                                    </button>
                                     {classes.map((cls) => (
-                                        <span
+                                        <button
                                             key={`count-${cls.id}`}
-                                            className="border border-graphite-700/70 bg-graphite-900 px-3 py-1"
+                                            type="button"
+                                            className={clsx(
+                                                'tab-button',
+                                                labeledClassFilter === cls.id && 'tab-button-active'
+                                            )}
+                                            onClick={() => setLabeledClassFilter(cls.id)}
                                         >
-                                            {cls.name}: {labeledCounts.get(cls.id) || 0}
-                                        </span>
+                                            {cls.name} ({labeledCounts.get(cls.id) || 0})
+                                        </button>
                                     ))}
                                 </div>
                             )}
