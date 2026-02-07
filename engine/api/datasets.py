@@ -6,10 +6,10 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from engine.services.dataset_service import dataset_service
-from engine.services.preclassify_service import preclassify_service
 from engine.io import paths
 
 router = APIRouter()
+PRECLASSIFY_ENABLED = False
 
 class ImportDatasetRequest(BaseModel):
     path: str
@@ -178,7 +178,10 @@ async def validate_dataset(project_id: str):
 
 @router.post("/projects/{project_id}/dataset/preclassify")
 async def preclassify_dataset(project_id: str, request: PreclassifyRequest):
+    if not PRECLASSIFY_ENABLED:
+        raise HTTPException(status_code=503, detail="Pre-classification is temporarily disabled.")
     try:
+        from engine.services.preclassify_service import preclassify_service
         dataset = dataset_service.get_dataset(project_id)
         images = dataset.get("images", [])
         by_id = {img.get("id"): img.get("path") for img in images}

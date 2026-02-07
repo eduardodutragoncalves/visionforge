@@ -48,6 +48,7 @@ interface Dataset {
 
 const API_BASE_URL = ENGINE_HTTP_URL;
 const IMAGE_PAGE_SIZE = 500;
+const PRECLASSIFY_ENABLED = false;
 type SaveStatus = 'idle' | 'saving' | 'pending' | 'saved';
 type PendingSave =
     | { type: 'labels'; imageId: string; labels: number[]; updatedAt: number }
@@ -950,7 +951,7 @@ export const ProjectDataset = () => {
                             {saveError && (
                                 <div className="text-xs text-error">{saveError}</div>
                             )}
-                            {preclassifyError && (
+                            {PRECLASSIFY_ENABLED && preclassifyError && (
                                 <div className="text-xs text-error">{preclassifyError}</div>
                             )}
 
@@ -979,34 +980,36 @@ export const ProjectDataset = () => {
                                 </Button>
                             </div>
 
-                            <div className="flex flex-wrap items-end gap-3">
-                                <Select
-                                    label="Pre-classify model"
-                                    options={[
-                                        { value: 'yolov8n-cls.pt', label: 'YOLOv8 Nano (cls)' },
-                                        { value: 'yolov8s-cls.pt', label: 'YOLOv8 Small (cls)' },
-                                        { value: 'yolov8m-cls.pt', label: 'YOLOv8 Medium (cls)' }
-                                    ]}
-                                    value={preclassifyModel}
-                                    onChange={(e) => setPreclassifyModel(e.target.value)}
-                                />
-                                <Input
-                                    label="Top K"
-                                    type="number"
-                                    value={preclassifyTopK}
-                                    onChange={(e) => setPreclassifyTopK(Math.max(1, Number(e.target.value) || 1))}
-                                />
-                                <Button
-                                    variant="secondary"
-                                    onClick={runPreclassify}
-                                    disabled={isPreclassifying}
-                                >
-                                    {isPreclassifying ? 'Pre-classifying...' : 'Pre-classify images'}
-                                </Button>
-                                <div className="text-xs text-secondary">
-                                    Uses selected images or the current list.
+                            {PRECLASSIFY_ENABLED && (
+                                <div className="flex flex-wrap items-end gap-3">
+                                    <Select
+                                        label="Pre-classify model"
+                                        options={[
+                                            { value: 'yolov8n-cls.pt', label: 'YOLOv8 Nano (cls)' },
+                                            { value: 'yolov8s-cls.pt', label: 'YOLOv8 Small (cls)' },
+                                            { value: 'yolov8m-cls.pt', label: 'YOLOv8 Medium (cls)' }
+                                        ]}
+                                        value={preclassifyModel}
+                                        onChange={(e) => setPreclassifyModel(e.target.value)}
+                                    />
+                                    <Input
+                                        label="Top K"
+                                        type="number"
+                                        value={preclassifyTopK}
+                                        onChange={(e) => setPreclassifyTopK(Math.max(1, Number(e.target.value) || 1))}
+                                    />
+                                    <Button
+                                        variant="secondary"
+                                        onClick={runPreclassify}
+                                        disabled={isPreclassifying}
+                                    >
+                                        {isPreclassifying ? 'Pre-classifying...' : 'Pre-classify images'}
+                                    </Button>
+                                    <div className="text-xs text-secondary">
+                                        Uses selected images or the current list.
+                                    </div>
                                 </div>
-                            </div>
+                            )}
 
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="flex flex-wrap gap-2">
@@ -1121,7 +1124,7 @@ export const ProjectDataset = () => {
                                                 ? `Label: ${image.labels.map((id) => classMap.get(id) || id).join(', ')}`
                                                 : 'Unlabeled'}
                                         </div>
-                                        {preclassifyResults[image.id]?.length ? (
+                                        {PRECLASSIFY_ENABLED && preclassifyResults[image.id]?.length ? (
                                             <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.3em] text-secondary">
                                                 {preclassifyResults[image.id].map((prediction) => (
                                                     <button
@@ -1166,7 +1169,7 @@ export const ProjectDataset = () => {
                                     alt={previewImage.id}
                                     className="modal-image"
                                 />
-                                {preclassifyResults[previewImage.id]?.length ? (
+                                {PRECLASSIFY_ENABLED && preclassifyResults[previewImage.id]?.length ? (
                                     <div className="modal-labels">
                                         {preclassifyResults[previewImage.id].map((prediction) => (
                                             <Button
