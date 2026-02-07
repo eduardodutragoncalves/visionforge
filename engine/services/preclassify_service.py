@@ -1,15 +1,21 @@
 import logging
-from typing import List, Dict, Any, Tuple
-from ultralytics import YOLO
+from typing import List, Dict, Any, Tuple, Optional
+
+try:
+    from ultralytics import YOLO
+except Exception:  # pragma: no cover - optional dependency
+    YOLO = None
 
 logger = logging.getLogger("VisionForge.Preclassify")
 
 
 class PreclassifyService:
     def __init__(self):
-        self._models: Dict[str, YOLO] = {}
+        self._models: Dict[str, Any] = {}
 
-    def _get_model(self, model_name: str) -> YOLO:
+    def _get_model(self, model_name: str):
+        if YOLO is None:
+            raise RuntimeError("Ultralytics is not installed in the engine environment.")
         if model_name not in self._models:
             logger.info("Loading preclassify model: %s", model_name)
             self._models[model_name] = YOLO(model_name)
