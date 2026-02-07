@@ -65,9 +65,11 @@ export const ProjectDataset = () => {
     const [previewImageId, setPreviewImageId] = useState<string | null>(null);
     const [activeClassId, setActiveClassId] = useState<number | null>(null);
     const [classificationTab, setClassificationTab] = useState<'unlabeled' | 'labeled'>('unlabeled');
+    const [thumbSize, setThumbSize] = useState<'sm' | 'lg' | 'xl'>('lg');
     const [frameInterval, setFrameInterval] = useState(30);
     const [draftBox, setDraftBox] = useState<BoundingBox | null>(null);
     const [isDrawing, setIsDrawing] = useState(false);
+    const [imageAspect, setImageAspect] = useState<Record<string, 'portrait' | 'landscape' | 'square'>>({});
     const imageRef = useRef<HTMLImageElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const classes = dataset?.classes ?? [];
@@ -97,6 +99,15 @@ export const ProjectDataset = () => {
         [images]
     );
     const visibleImages = classificationTab === 'labeled' ? labeledImages : unlabeledImages;
+
+    const handleThumbLoad = (imageId: string, event: React.SyntheticEvent<HTMLImageElement>) => {
+        const target = event.currentTarget;
+        if (!target.naturalWidth || !target.naturalHeight) return;
+        const ratio = target.naturalWidth / target.naturalHeight;
+        const nextAspect: 'portrait' | 'landscape' | 'square' =
+            ratio > 1.15 ? 'landscape' : ratio < 0.85 ? 'portrait' : 'square';
+        setImageAspect((prev) => (prev[imageId] === nextAspect ? prev : { ...prev, [imageId]: nextAspect }));
+    };
 
     const fetchDataset = async () => {
         if (!projectId) return;
@@ -648,42 +659,64 @@ export const ProjectDataset = () => {
                                 </Button>
                             </div>
 
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    type="button"
-                                    className={clsx(
-                                        'tab-button',
-                                        classificationTab === 'unlabeled' && 'tab-button-active'
-                                    )}
-                                    onClick={() => setClassificationTab('unlabeled')}
-                                >
-                                    Unlabeled ({unlabeledImages.length})
-                                </button>
-                                <button
-                                    type="button"
-                                    className={clsx(
-                                        'tab-button',
-                                        classificationTab === 'labeled' && 'tab-button-active'
-                                    )}
-                                    onClick={() => setClassificationTab('labeled')}
-                                >
-                                    Labeled ({labeledImages.length})
-                                </button>
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        className={clsx(
+                                            'tab-button',
+                                            classificationTab === 'unlabeled' && 'tab-button-active'
+                                        )}
+                                        onClick={() => setClassificationTab('unlabeled')}
+                                    >
+                                        Unlabeled ({unlabeledImages.length})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={clsx(
+                                            'tab-button',
+                                            classificationTab === 'labeled' && 'tab-button-active'
+                                        )}
+                                        onClick={() => setClassificationTab('labeled')}
+                                    >
+                                        Labeled ({labeledImages.length})
+                                    </button>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-secondary">
+                                    <span>Thumbs</span>
+                                    <div className="flex items-center gap-2">
+                                        {(['sm', 'lg', 'xl'] as const).map((size) => (
+                                            <button
+                                                key={size}
+                                                type="button"
+                                                className={clsx('thumb-toggle', thumbSize === size && 'thumb-toggle-active')}
+                                                onClick={() => setThumbSize(size)}
+                                            >
+                                                {size.toUpperCase()}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
 
-                            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                            <div className={clsx('image-grid', `image-grid-${thumbSize}`)}>
                                 {visibleImages.map((image) => (
                                     <button
                                         key={image.id}
                                         type="button"
                                         onClick={() => toggleSelected(image.id)}
                                         onDoubleClick={() => setPreviewImageId(image.id)}
-                                        className={`border-2 ${selectedIds.has(image.id) ? 'border-accent-primary' : 'border-graphite-700'} bg-graphite-900 p-2 text-left`}
+                                        className={clsx(
+                                            'image-card',
+                                            imageAspect[image.id] ? `image-card-${imageAspect[image.id]}` : null,
+                                            selectedIds.has(image.id) ? 'image-card-selected' : null
+                                        )}
                                     >
                                         <img
                                             src={getImageSrc(image)}
                                             alt={image.id}
-                                            className="h-28 w-full object-contain bg-graphite-950/60"
+                                            className="thumb-image"
+                                            onLoad={(event) => handleThumbLoad(image.id, event)}
                                         />
                                         <div className="mt-2 text-xs text-secondary">
                                             {image.labels.length > 0

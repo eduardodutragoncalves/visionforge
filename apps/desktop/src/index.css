@@ -330,6 +330,68 @@
     box-shadow: 0 0 0 1px rgba(47, 184, 255, 0.4), 0 8px 18px rgba(8, 18, 26, 0.6);
   }
 
+  .thumb-toggle {
+    @apply border border-graphite-700/70 bg-graphite-900 px-3 py-1 text-[10px] uppercase tracking-[0.32em] text-haze transition-all duration-150;
+    border-radius: 999px;
+  }
+
+  .thumb-toggle-active {
+    @apply border-accent-primary text-bone;
+    box-shadow: 0 0 0 1px rgba(47, 184, 255, 0.4);
+  }
+
+  .image-grid {
+    display: grid;
+    gap: 16px;
+    grid-auto-flow: dense;
+    grid-template-columns: repeat(auto-fill, minmax(var(--thumb-min), 1fr));
+    max-height: min(60vh, 520px);
+    overflow-y: auto;
+    padding-right: 6px;
+  }
+
+  .image-grid-sm {
+    --thumb-min: 120px;
+    --thumb-height: 96px;
+  }
+
+  .image-grid-lg {
+    --thumb-min: 160px;
+    --thumb-height: 128px;
+  }
+
+  .image-grid-xl {
+    --thumb-min: 220px;
+    --thumb-height: 170px;
+  }
+
+  .image-card {
+    @apply border-2 border-graphite-700 bg-graphite-900 p-2 text-left transition-colors;
+  }
+
+  .image-card-selected {
+    @apply border-accent-primary;
+  }
+
+  .image-card-landscape {
+    grid-column: span 2;
+  }
+
+  .image-card-portrait {
+    grid-column: span 1;
+  }
+
+  .image-card-square {
+    grid-column: span 1;
+  }
+
+  .thumb-image {
+    width: 100%;
+    height: var(--thumb-height, 128px);
+    object-fit: contain;
+    background: rgba(8, 12, 16, 0.6);
+  }
+
   .loader {
     @apply h-3 w-3 animate-spin rounded-full border-2 border-bone/40 border-t-transparent;
   }
