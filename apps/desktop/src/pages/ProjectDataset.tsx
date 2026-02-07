@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { FolderOpen, Images, Film, Plus, X } from 'lucide-react';
+import { FolderOpen, Image, Film, Plus, X } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -396,7 +396,7 @@ export const ProjectDataset = () => {
                                 Add folder
                             </Button>
                             <Button variant="secondary" onClick={handleIngestFiles} disabled={ingesting}>
-                                <Images size={16} />
+                                <Image size={16} />
                                 Add files
                             </Button>
                             <Button variant="secondary" onClick={handleIngestVideo} disabled={ingesting}>
