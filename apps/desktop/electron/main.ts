@@ -1,6 +1,9 @@
 import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
 import path from 'node:path'
 import { release } from 'node:os'
+import http from 'node:http'
+import fs from 'node:fs'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
 if (release().startsWith('6.1')) {
     app.disableHardwareAcceleration()
@@ -20,10 +23,115 @@ process.env.PUBLIC = PUBLIC
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
 let win: BrowserWindow | null = null
+let engineProcess: ChildProcessWithoutNullStreams | null = null
+let engineOwned = false
+
+const ENGINE_HEALTH_URL = process.env.VISIONFORGE_ENGINE_URL || 'http://127.0.0.1:8000/health'
+const ENGINE_PYTHON = process.env.VISIONFORGE_PYTHON || 'python'
+const resolveEngineCwd = () => {
+    if (process.env.VISIONFORGE_ENGINE_CWD) {
+        return process.env.VISIONFORGE_ENGINE_CWD
+    }
+    const repoRootCandidate = path.resolve(__dirname, '../../..')
+    const engineEntry = path.join(repoRootCandidate, 'engine', 'main.py')
+    if (fs.existsSync(engineEntry)) {
+        return repoRootCandidate
+    }
+    return process.cwd()
+}
+
+const ENGINE_CWD = resolveEngineCwd()
+
+const isEngineRunning = () => new Promise<boolean>((resolve) => {
+    const req = http.get(ENGINE_HEALTH_URL, (res) => {
+        resolve(res.statusCode === 200)
+        res.resume()
+    })
+    req.on('error', () => resolve(false))
+    req.setTimeout(500, () => {
+        req.destroy()
+        resolve(false)
+    })
+})
+
+const startEngine = async () => {
+    const running = await isEngineRunning()
+    if (running) {
+        engineOwned = false
+        return
+    }
+
+    const args = ['-m', 'uvicorn', 'engine.main:app', '--port', '8000']
+    if (process.env.VITE_DEV_SERVER_URL) {
+        args.push('--reload')
+    }
+
+    engineProcess = spawn(ENGINE_PYTHON, args, {
+        cwd: ENGINE_CWD,
+        env: process.env,
+        stdio: 'pipe',
+        detached: process.platform !== 'win32'
+    })
+    engineOwned = true
+
+    engineProcess.stdout.on('data', (data) => {
+        console.log(`[engine] ${data.toString().trim()}`)
+    })
+    engineProcess.stderr.on('data', (data) => {
+        console.error(`[engine] ${data.toString().trim()}`)
+    })
+    engineProcess.on('exit', (code) => {
+        console.log(`[engine] exited with code ${code ?? 'unknown'}`)
+        engineProcess = null
+    })
+}
+
+const stopEngine = () => {
+    if (!engineProcess || !engineOwned) return
+
+    const pid = engineProcess.pid
+    if (!pid) return
+
+    if (process.platform === 'win32') {
+        spawn('taskkill', ['/pid', String(pid), '/t', '/f'])
+    } else {
+        try {
+            process.kill(-pid, 'SIGTERM')
+        } catch (err) {
+            try {
+                process.kill(pid, 'SIGTERM')
+            } catch {
+                // ignore
+            }
+        }
+    }
+}
 
 async function handleOpenDirectory() {
     const { canceled, filePaths } = await dialog.showOpenDialog({
         properties: ['openDirectory', 'createDirectory']
+    })
+    if (canceled) {
+        return null
+    }
+    return filePaths[0]
+}
+
+async function handleOpenFiles() {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'bmp', 'webp'] }]
+    })
+    if (canceled) {
+        return []
+    }
+    return filePaths
+}
+
+async function handleOpenVideo() {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [{ name: 'Videos', extensions: ['mp4', 'mov', 'avi', 'mkv'] }]
     })
     if (canceled) {
         return null
@@ -36,13 +144,9 @@ function createWindow() {
         icon: path.join(PUBLIC, 'electron-vite.svg'),
         width: 1200,
         height: 800,
+        frame: false,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
-        },
-        titleBarStyle: 'hidden',
-        titleBarOverlay: {
-            color: 'rgba(0,0,0,0)',
-            symbolColor: '#ffffff'
         },
         vibrancy: 'fullscreen-ui',
         backgroundMaterial: 'acrylic',
@@ -62,6 +166,13 @@ function createWindow() {
         win?.webContents.send('main-process-message', new Date().toLocaleString())
     })
 
+    const notifyMaximize = () => {
+        win?.webContents.send('window:maximize-changed', win.isMaximized())
+    }
+
+    win.on('maximize', notifyMaximize)
+    win.on('unmaximize', notifyMaximize)
+
     if (VITE_DEV_SERVER_URL) {
         win.loadURL(VITE_DEV_SERVER_URL)
     } else {
@@ -71,7 +182,22 @@ function createWindow() {
 
 app.whenReady().then(() => {
     ipcMain.handle('dialog:openDirectory', handleOpenDirectory)
+    ipcMain.handle('dialog:openFiles', handleOpenFiles)
+    ipcMain.handle('dialog:openVideo', handleOpenVideo)
+    ipcMain.handle('window:minimize', () => win?.minimize())
+    ipcMain.handle('window:toggle-maximize', () => {
+        if (!win) return false
+        if (win.isMaximized()) {
+            win.unmaximize()
+            return false
+        }
+        win.maximize()
+        return true
+    })
+    ipcMain.handle('window:close', () => win?.close())
+    ipcMain.handle('window:is-maximized', () => win?.isMaximized() ?? false)
     createWindow()
+    startEngine()
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
             createWindow()
@@ -81,6 +207,11 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
+        stopEngine()
         app.quit()
     }
+})
+
+app.on('before-quit', () => {
+    stopEngine()
 })

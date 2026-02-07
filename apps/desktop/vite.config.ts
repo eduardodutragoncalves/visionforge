@@ -3,6 +3,9 @@ import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
 
+delete process.env.ELECTRON_RUN_AS_NODE;
+delete process.env.ELECTRON_NO_ATTACH_CONSOLE;
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [

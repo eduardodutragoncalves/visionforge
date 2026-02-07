@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
 import { Select } from '../../components/ui/Select';
 import { Upload, Camera, Zap } from 'lucide-react';
+import { ENGINE_HTTP_URL } from '../../lib/engine';
 
 interface Prediction {
     box: number[]; // x1, y1, x2, y2
@@ -35,7 +36,7 @@ export const ProjectTest = () => {
     useEffect(() => {
         const fetchVariants = async () => {
             try {
-                const res = await fetch(`http://localhost:8000/projects/${projectId}/variants`);
+                const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/variants`);
                 if (res.ok) {
                     const data = await res.json();
                     setVariants(data);
@@ -70,7 +71,7 @@ export const ProjectTest = () => {
         formData.append('project_id', projectId || "");
 
         try {
-            const res = await fetch(`http://localhost:8000/variants/${selectedVariant}/infer`, {
+            const res = await fetch(`${ENGINE_HTTP_URL}/variants/${selectedVariant}/infer`, {
                 method: 'POST',
                 body: formData
             });

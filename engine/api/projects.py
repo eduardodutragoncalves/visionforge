@@ -11,14 +11,21 @@ router = APIRouter()
 class CreateProjectRequest(BaseModel):
     name: str
     description: Optional[str] = ""
+    analysis_type: Optional[str] = "classification"
 
 class ProjectResponse(BaseModel):
     id: str
     name: str
     description: str
+    analysis_type: Optional[str] = "classification"
     created_at: str
     updated_at: str
     datasets: List[str]
+
+def _normalize_project(data: dict) -> dict:
+    if not data.get("analysis_type"):
+        data["analysis_type"] = "classification"
+    return data
 
 @router.get("/projects", response_model=List[ProjectResponse])
 async def list_projects():
@@ -34,7 +41,7 @@ async def list_projects():
             if manifest_path.exists():
                 try:
                     data = manifests.load_manifest(manifest_path)
-                    projects.append(data)
+                    projects.append(_normalize_project(data))
                 except Exception as e:
                     print(f"Skipping invalid project {project_dir}: {e}")
     
@@ -49,6 +56,7 @@ async def create_project(request: CreateProjectRequest):
         "id": project_id,
         "name": request.name,
         "description": request.description,
+        "analysis_type": request.analysis_type or "classification",
         "created_at": now,
         "updated_at": now,
         "datasets": []
@@ -72,4 +80,5 @@ async def get_project(project_id: str):
     if not manifest_path.exists():
         raise HTTPException(status_code=404, detail="Project not found")
         
-    return manifests.load_manifest(manifest_path)
+    data = manifests.load_manifest(manifest_path)
+    return _normalize_project(data)

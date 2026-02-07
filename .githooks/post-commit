@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${AUTO_SYNC_ENABLED:-1}" != "1" ]]; then
+  exit 0
+fi
+
+remote="${AUTO_SYNC_REMOTE:-origin}"
+branch="${AUTO_SYNC_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
+
+if ! git remote get-url "$remote" >/dev/null 2>&1; then
+  echo "[auto-sync] Remote '$remote' not found. Skipping push."
+  exit 0
+fi
+
+git push "$remote" "$branch"

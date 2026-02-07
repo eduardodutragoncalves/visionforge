@@ -12,6 +12,125 @@ class ImportDatasetRequest(BaseModel):
 class ScanDatasetRequest(BaseModel):
     path: str
 
+class DatasetConfigRequest(BaseModel):
+    task: Optional[str] = None
+    format: Optional[str] = None
+
+class DatasetClassInput(BaseModel):
+    id: Optional[int] = None
+    name: str
+    color: Optional[str] = None
+
+class UpdateClassesRequest(BaseModel):
+    classes: List[DatasetClassInput]
+
+class UpdateLabelsRequest(BaseModel):
+    labels: List[int]
+
+class BatchUpdateLabelsRequest(BaseModel):
+    image_ids: List[str]
+    labels: List[int]
+
+class BoundingBox(BaseModel):
+    class_id: int
+    x: float
+    y: float
+    w: float
+    h: float
+
+class UpdateBoxesRequest(BaseModel):
+    boxes: List[BoundingBox]
+
+class IngestDirectoriesRequest(BaseModel):
+    paths: List[str]
+
+class IngestFilesRequest(BaseModel):
+    paths: List[str]
+
+class IngestVideoRequest(BaseModel):
+    path: str
+    frame_interval: int
+    max_frames: Optional[int] = None
+
+@router.get("/projects/{project_id}/dataset")
+async def get_dataset(project_id: str):
+    try:
+        return dataset_service.get_dataset(project_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/projects/{project_id}/dataset/images")
+async def list_images(project_id: str, limit: int = 200, offset: int = 0):
+    try:
+        return dataset_service.list_images(project_id, limit=limit, offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/projects/{project_id}/dataset")
+async def update_dataset_config(project_id: str, request: DatasetConfigRequest):
+    try:
+        return dataset_service.update_dataset_config(project_id, request.dict(exclude_none=True))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/projects/{project_id}/dataset/classes")
+async def update_dataset_classes(project_id: str, request: UpdateClassesRequest):
+    try:
+        payload = [cls.dict(exclude_none=True) for cls in request.classes]
+        return dataset_service.update_classes(project_id, payload)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/projects/{project_id}/dataset/images/{image_id}/labels")
+async def update_image_labels(project_id: str, image_id: str, request: UpdateLabelsRequest):
+    try:
+        return dataset_service.update_image_labels(project_id, image_id, request.labels)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/projects/{project_id}/dataset/images/labels")
+async def update_images_labels(project_id: str, request: BatchUpdateLabelsRequest):
+    try:
+        return dataset_service.update_images_labels(project_id, request.image_ids, request.labels)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/projects/{project_id}/dataset/images/{image_id}/boxes")
+async def update_image_boxes(project_id: str, image_id: str, request: UpdateBoxesRequest):
+    try:
+        payload = [box.dict() for box in request.boxes]
+        return dataset_service.update_image_boxes(project_id, image_id, payload)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/projects/{project_id}/dataset/ingest/directories")
+async def ingest_directories(project_id: str, request: IngestDirectoriesRequest):
+    try:
+        return dataset_service.ingest_directories(project_id, request.paths)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/projects/{project_id}/dataset/ingest/files")
+async def ingest_files(project_id: str, request: IngestFilesRequest):
+    try:
+        return dataset_service.ingest_files(project_id, request.paths)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/projects/{project_id}/dataset/ingest/video")
+async def ingest_video(project_id: str, request: IngestVideoRequest):
+    try:
+        return dataset_service.ingest_video(project_id, request.path, request.frame_interval, request.max_frames)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/projects/{project_id}/dataset/validate")
+async def validate_dataset(project_id: str):
+    try:
+        return await dataset_service.validate_current_dataset(project_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.post("/projects/{project_id}/dataset/import")
 async def import_dataset(project_id: str, request: ImportDatasetRequest):
     try:

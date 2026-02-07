@@ -7,7 +7,7 @@
     "shared/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:desktop\" \"npm run dev:engine\"",
+    "dev": "npm run dev:desktop",
     "dev:desktop": "npm run dev --workspace=apps/desktop",
     "dev:engine": "uvicorn engine.main:app --reload --port 8000",
     "build": "npm run build --workspaces",

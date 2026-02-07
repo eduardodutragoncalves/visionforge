@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { SplashScreen } from './SplashScreen';
 
 export const AppShell = () => {
     return (
@@ -8,6 +9,7 @@ export const AppShell = () => {
             <Sidebar />
             <div className="content-wrapper">
                 <Topbar />
+                <SplashScreen />
                 <main className="page-content">
                     <Outlet />
                 </main>

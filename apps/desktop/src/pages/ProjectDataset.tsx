@@ -1,24 +1,108 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { FolderOpen, Images, Film, Plus, X } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { useEngineConnection } from '../../hooks/useEngineConnection';
+import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
+import { ENGINE_HTTP_URL, ENGINE_WS_URL } from '../lib/engine';
 
-declare global {
-    interface Window {
-        ipcRenderer: any;
-    }
+interface DatasetClass {
+    id: number;
+    name: string;
+    color?: string;
 }
+
+interface BoundingBox {
+    class_id: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+interface DatasetImage {
+    id: string;
+    path: string;
+    split?: string;
+    labels: number[];
+    boxes: BoundingBox[];
+}
+
+interface Dataset {
+    id: string;
+    project_id: string;
+    root_path: string;
+    task: 'classification' | 'detection';
+    format: 'yolo' | 'coco' | 'pascal' | 'tfrecord';
+    classes: DatasetClass[];
+    images: DatasetImage[];
+}
+
+const API_BASE_URL = ENGINE_HTTP_URL;
+
+const toFileUrl = (path: string) => {
+    const normalized = path.replace(/\\/g, '/');
+    if (normalized.startsWith('/')) {
+        return `file://${normalized}`;
+    }
+    return `file:///${normalized}`;
+};
 
 export const ProjectDataset = () => {
     const { projectId } = useParams();
-    const [datasetPath, setDatasetPath] = useState<string | null>(null);
+    const [dataset, setDataset] = useState<Dataset | null>(null);
+    const [images, setImages] = useState<DatasetImage[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [ingesting, setIngesting] = useState(false);
     const [scanProgress, setScanProgress] = useState<any>(null);
     const [validationReport, setValidationReport] = useState<any>(null);
     const [isValidating, setIsValidating] = useState(false);
+    const [newClassName, setNewClassName] = useState('');
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [activeImageId, setActiveImageId] = useState<string | null>(null);
+    const [activeClassId, setActiveClassId] = useState<number | null>(null);
+    const [frameInterval, setFrameInterval] = useState(30);
+    const [draftBox, setDraftBox] = useState<BoundingBox | null>(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const imageRef = useRef<HTMLImageElement | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const classes = dataset?.classes ?? [];
 
-    // Reuse engine connection to ensure WS is open
-    // Ideally use a specialized hook to listen to specific events
+    const classMap = useMemo(() => new Map(classes.map((cls) => [cls.id, cls.name])), [classes]);
+
+    const selectedImage = useMemo(
+        () => images.find((image) => image.id === activeImageId) || null,
+        [images, activeImageId]
+    );
+
+    const fetchDataset = async () => {
+        if (!projectId) return;
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset`);
+            if (res.ok) {
+                const data = await res.json();
+                setDataset(data);
+            }
+            const imagesRes = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images?limit=500`);
+            if (imagesRes.ok) {
+                setImages(await imagesRes.json());
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchDataset();
+    }, [projectId]);
+
+    useEffect(() => {
+        if (!activeImageId && images.length > 0) {
+            setActiveImageId(images[0].id);
+        }
+    }, [images, activeImageId]);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -27,86 +111,371 @@ export const ProjectDataset = () => {
                 if (msg.event === 'dataset/scan_progress') {
                     setScanProgress(msg.data);
                 } else if (msg.event === 'dataset/validate_progress') {
-                    setScanProgress(msg.data); // reuse state for simplicity
+                    setScanProgress(msg.data);
                 } else if (msg.event === 'dataset/validated') {
                     setValidationReport(msg.data);
                     setIsValidating(false);
                 }
-            } catch (e) { }
+            } catch {
+                // ignore
+            }
         };
 
-        // Quick/Dirty: Add global listener or tap into hook. 
-        // For this component we'll assume global WS is active and we attach a listener 
-        // OR we just create a new socket if App's global one isn't exposing an event bus.
-        // Let's attach to the existing socket by peeking or - better - 
-        // update useEngineConnection to dispatch CustomEvents or use a store
-        // For MVP, I'll direct connect a listener to the App's socket using a new connection just for this page 
-        // is wasteful but easy. 
-        // Or better: The `useEngineConnection` hook in App.tsx sets up the socket on mount.
-        // We really need a Context or Store. 
-        // I will connect a SECOND socket here for simplicity to receive events.
-
-        const ws = new WebSocket('ws://localhost:8000/ws');
+        const ws = new WebSocket(ENGINE_WS_URL);
         ws.onmessage = handleMessage;
 
         return () => ws.close();
     }, []);
 
-    const handleImport = async () => {
-        // 1. Open Dialog
-        const path = await window.ipcRenderer.openDirectory();
-        if (path) {
-            setDatasetPath(path);
-            setIsValidating(true);
-
-            // 2. Call Engine Import
-            await fetch(`http://localhost:8000/projects/${projectId}/dataset/import`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path })
-            });
-
-            // 3. Scan & Validate
-            await fetch(`http://localhost:8000/projects/${projectId}/dataset/scan`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path })
-            });
+    const updateDatasetConfig = async (updates: Partial<Pick<Dataset, 'format'>>) => {
+        if (!projectId) return;
+        const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates)
+        });
+        if (res.ok) {
+            setDataset(await res.json());
         }
     };
 
+    const handleAddClass = async () => {
+        if (!projectId || !dataset) return;
+        const name = newClassName.trim();
+        if (!name) return;
+        const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/classes`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                classes: [...dataset.classes, { name }]
+            })
+        });
+        if (res.ok) {
+            setDataset(await res.json());
+            setNewClassName('');
+        }
+    };
+
+    const handleRemoveClass = async (classId: number) => {
+        if (!projectId || !dataset) return;
+        const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/classes`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                classes: dataset.classes.filter((c) => c.id !== classId)
+            })
+        });
+        if (res.ok) {
+            setDataset(await res.json());
+        }
+    };
+
+    const handleIngestDirectories = async () => {
+        if (!projectId) return;
+        const path = await window.ipcRenderer?.openDirectory?.();
+        if (!path) return;
+        setIngesting(true);
+        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/ingest/directories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: [path] })
+        });
+        await fetchDataset();
+        setIngesting(false);
+    };
+
+    const handleIngestFiles = async () => {
+        if (!projectId) return;
+        const paths = await window.ipcRenderer?.openFiles?.();
+        if (!paths || paths.length === 0) return;
+        setIngesting(true);
+        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/ingest/files`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths })
+        });
+        await fetchDataset();
+        setIngesting(false);
+    };
+
+    const handleIngestVideo = async () => {
+        if (!projectId) return;
+        const path = await window.ipcRenderer?.openVideo?.();
+        if (!path) return;
+        setIngesting(true);
+        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/ingest/video`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, frame_interval: frameInterval })
+        });
+        await fetchDataset();
+        setIngesting(false);
+    };
+
+    const handleValidate = async () => {
+        if (!projectId) return;
+        setIsValidating(true);
+        setValidationReport(null);
+        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/validate`, { method: 'POST' });
+    };
+
+    const toggleSelected = (imageId: string) => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(imageId)) {
+                next.delete(imageId);
+            } else {
+                next.add(imageId);
+            }
+            return next;
+        });
+    };
+
+    const handleAssignClass = async (classId: number) => {
+        if (!projectId || selectedIds.size === 0) return;
+        const ids = Array.from(selectedIds);
+        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/labels`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_ids: ids, labels: [classId] })
+        });
+        setImages((prev) =>
+            prev.map((image) =>
+                ids.includes(image.id) ? { ...image, labels: [classId] } : image
+            )
+        );
+    };
+
+    const handleClearLabels = async () => {
+        if (!projectId || selectedIds.size === 0) return;
+        const ids = Array.from(selectedIds);
+        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/labels`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_ids: ids, labels: [] })
+        });
+        setImages((prev) =>
+            prev.map((image) =>
+                ids.includes(image.id) ? { ...image, labels: [] } : image
+            )
+        );
+    };
+
+    const updateBoxes = async (imageId: string, boxes: BoundingBox[]) => {
+        if (!projectId) return;
+        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}/boxes`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ boxes })
+        });
+        setImages((prev) =>
+            prev.map((image) => (image.id === imageId ? { ...image, boxes } : image))
+        );
+    };
+
+    const drawBoxes = (boxes: BoundingBox[], draft?: BoundingBox | null) => {
+        const canvas = canvasRef.current;
+        const img = imageRef.current;
+        if (!canvas || !img) return;
+        const rect = img.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const allBoxes = draft ? [...boxes, draft] : boxes;
+        allBoxes.forEach((box) => {
+            const x = box.x * rect.width;
+            const y = box.y * rect.height;
+            const w = box.w * rect.width;
+            const h = box.h * rect.height;
+            ctx.strokeStyle = '#2fb8ff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+        });
+    };
+
+    useEffect(() => {
+        if (selectedImage) {
+            drawBoxes(selectedImage.boxes, draftBox);
+        }
+    }, [selectedImage, draftBox]);
+
+    const getRelativePoint = (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+        const img = imageRef.current;
+        if (!img) return null;
+        const rect = img.getBoundingClientRect();
+        const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+        const y = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+        return { x, y, width: rect.width, height: rect.height };
+    };
+
+    const handleMouseDown = (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+        if (!selectedImage || activeClassId === null) return;
+        const point = getRelativePoint(event);
+        if (!point) return;
+        setIsDrawing(true);
+        setDraftBox({
+            class_id: activeClassId,
+            x: point.x / point.width,
+            y: point.y / point.height,
+            w: 0,
+            h: 0
+        });
+    };
+
+    const handleMouseMove = (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+        if (!isDrawing || !draftBox) return;
+        const point = getRelativePoint(event);
+        if (!point) return;
+        const startX = draftBox.x * point.width;
+        const startY = draftBox.y * point.height;
+        const width = point.x - startX;
+        const height = point.y - startY;
+        setDraftBox({
+            ...draftBox,
+            w: Math.abs(width) / point.width,
+            h: Math.abs(height) / point.height,
+            x: Math.min(startX, point.x) / point.width,
+            y: Math.min(startY, point.y) / point.height
+        });
+    };
+
+    const handleMouseUp = async () => {
+        if (!selectedImage || !draftBox) {
+            setIsDrawing(false);
+            return;
+        }
+        const isTiny = draftBox.w < 0.01 || draftBox.h < 0.01;
+        setIsDrawing(false);
+        if (isTiny) {
+            setDraftBox(null);
+            return;
+        }
+        const nextBoxes = [...selectedImage.boxes, draftBox];
+        setDraftBox(null);
+        await updateBoxes(selectedImage.id, nextBoxes);
+    };
+
+    const handleRemoveBox = async (index: number) => {
+        if (!selectedImage) return;
+        const nextBoxes = selectedImage.boxes.filter((_, idx) => idx !== index);
+        await updateBoxes(selectedImage.id, nextBoxes);
+    };
+
+    const totalSelected = selectedIds.size;
+
     return (
-        <div className="dataset-page animate-fade-in space-y-6">
-            <header className="flex justify-between items-center mb-6">
+        <div className="animate-fade-in space-y-6">
+            <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold">Dataset</h2>
-                    <p className="text-secondary">Manage training data for {projectId}</p>
+                    <div className="text-xs uppercase tracking-[0.6em] text-haze">Dataset</div>
+                    <h2 className="text-3xl font-semibold">Build and Label</h2>
+                    <p className="text-secondary text-sm mt-2">
+                        Import directories, files, or video frames, then label for {dataset?.task || 'classification'}.
+                    </p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <Button variant="secondary" onClick={handleValidate} disabled={isValidating}>
+                        {isValidating ? 'Validating...' : 'Validate dataset'}
+                    </Button>
                 </div>
             </header>
 
-            <Card>
-                <div className="flex justify-between items-center">
-                    <div>
-                        <h3 className="mb-2">Dataset Source</h3>
-                        <p className="text-secondary font-mono text-sm">
-                            {datasetPath || "No dataset linked yet."}
-                        </p>
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                <Card className="space-y-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <h3 className="text-lg font-semibold">Ingestion</h3>
+                            <p className="text-secondary text-sm">Bring data into the project workspace.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="secondary" onClick={handleIngestDirectories} disabled={ingesting}>
+                                <FolderOpen size={16} />
+                                Add folder
+                            </Button>
+                            <Button variant="secondary" onClick={handleIngestFiles} disabled={ingesting}>
+                                <Images size={16} />
+                                Add files
+                            </Button>
+                            <Button variant="secondary" onClick={handleIngestVideo} disabled={ingesting}>
+                                <Film size={16} />
+                                Add video
+                            </Button>
+                        </div>
                     </div>
-                    <Button variant="primary" onClick={handleImport} disabled={isValidating}>
-                        {isValidating ? 'Validating...' : 'Import Folder'}
-                    </Button>
-                </div>
-            </Card>
+
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                        <Input
+                            label="Frame interval (video)"
+                            type="number"
+                            value={frameInterval}
+                            onChange={(e) => setFrameInterval(Number(e.target.value) || 1)}
+                        />
+                        <Select
+                            label="Dataset format"
+                            options={[
+                                { value: 'yolo', label: 'YOLO' },
+                                { value: 'coco', label: 'COCO' },
+                                { value: 'pascal', label: 'Pascal VOC' },
+                                { value: 'tfrecord', label: 'TFRecord' }
+                            ]}
+                            value={dataset?.format || 'yolo'}
+                            onChange={(e) => updateDatasetConfig({ format: e.target.value as Dataset['format'] })}
+                        />
+                    </div>
+
+                    <div className="flex flex-wrap gap-4 text-xs uppercase tracking-[0.3em] text-haze">
+                        <span>Images: {images.length}</span>
+                        <span>Classes: {dataset?.classes.length || 0}</span>
+                    </div>
+                </Card>
+
+                <Card className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-lg font-semibold">Classes</h3>
+                            <p className="text-secondary text-sm">Create labels used during training.</p>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                        <Input
+                            placeholder="Add class name"
+                            value={newClassName}
+                            onChange={(e) => setNewClassName(e.target.value)}
+                        />
+                        <Button variant="primary" onClick={handleAddClass}>
+                            <Plus size={16} />
+                        </Button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                        {classes.map((cls) => (
+                            <span
+                                key={cls.id}
+                                className="flex items-center gap-2 border-2 border-graphite-700 px-3 py-1 text-xs uppercase tracking-[0.3em]"
+                            >
+                                <span className="h-2 w-2 rounded-full" style={{ background: cls.color || '#2fb8ff' }} />
+                                {cls.name}
+                                <button onClick={() => handleRemoveClass(cls.id)} aria-label="Remove class">
+                                    <X size={12} />
+                                </button>
+                            </span>
+                        ))}
+                    </div>
+                </Card>
+            </div>
 
             {isValidating && (
                 <Card>
-                    <h3>Scanning & Validating...</h3>
+                    <h3>Scanning & validating...</h3>
                     <div className="mt-4">
                         <div className="text-sm text-secondary mb-2">
                             Processed: {scanProgress?.processed || scanProgress?.count || 0} files
                         </div>
-                        {/* Fake Progress Bar */}
-                        <div className="h-2 bg-gray-800 rounded overflow-hidden">
+                        <div className="h-2 bg-graphite-700 rounded overflow-hidden">
                             <div
                                 className="h-full bg-accent-primary transition-all duration-300"
                                 style={{ width: `${scanProgress?.progress || 0}%` }}
@@ -119,15 +488,21 @@ export const ProjectDataset = () => {
             {validationReport && (
                 <div className="grid grid-cols-2 gap-6">
                     <Card glass>
-                        <h3 className="mb-4 text-accent-success">Validation Passed</h3>
-                        <div className="text-4xl font-bold">{validationReport.valid_count} <span className="text-base text-secondary font-normal">images</span></div>
+                        <h3 className="mb-4 text-accent-success">Validation passed</h3>
+                        <div className="text-4xl font-bold">
+                            {validationReport.valid_count}{' '}
+                            <span className="text-base text-secondary font-normal">images</span>
+                        </div>
                         <div className="mt-4 text-xs text-secondary font-mono break-all">
                             Hash: {validationReport.dataset_hash}
                         </div>
                     </Card>
                     <Card glass>
-                        <h3 className="mb-4 text-accent-error">Issues Found</h3>
-                        <div className="text-4xl font-bold">{validationReport.corrupted_count} <span className="text-base text-secondary font-normal">corrupted</span></div>
+                        <h3 className="mb-4 text-accent-error">Issues found</h3>
+                        <div className="text-4xl font-bold">
+                            {validationReport.corrupted_count}{' '}
+                            <span className="text-base text-secondary font-normal">corrupted</span>
+                        </div>
                         <div className="mt-4 max-h-32 overflow-y-auto">
                             {validationReport.corrupted_files.map((f: string, i: number) => (
                                 <div key={i} className="text-xs text-error font-mono">{f}</div>
@@ -135,6 +510,141 @@ export const ProjectDataset = () => {
                         </div>
                     </Card>
                 </div>
+            )}
+
+            {loading ? (
+                <Card>
+                    <div className="text-secondary">Loading dataset...</div>
+                </Card>
+            ) : (
+                <>
+            {dataset && dataset.task === 'classification' && (
+                        <Card className="space-y-4">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                    <h3 className="text-lg font-semibold">Classification labeling</h3>
+                                    <p className="text-secondary text-sm">
+                                        Select images and assign a class in batch.
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-haze">
+                                    Selected: {totalSelected}
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                                {classes.map((cls) => (
+                                    <Button
+                                        key={cls.id}
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => handleAssignClass(cls.id)}
+                                    >
+                                        {cls.name}
+                                    </Button>
+                                ))}
+                                <Button size="sm" variant="ghost" onClick={handleClearLabels}>
+                                    Clear labels
+                                </Button>
+                            </div>
+
+                            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                                {images.map((image) => (
+                                    <button
+                                        key={image.id}
+                                        type="button"
+                                        onClick={() => toggleSelected(image.id)}
+                                        className={`border-2 ${selectedIds.has(image.id) ? 'border-accent-primary' : 'border-graphite-700'} bg-graphite-900 p-2 text-left`}
+                                    >
+                                        <img
+                                            src={toFileUrl(image.path)}
+                                            alt={image.id}
+                                            className="h-24 w-full object-cover"
+                                        />
+                                        <div className="mt-2 text-xs text-secondary">
+                                            {image.labels.length > 0
+                                                ? `Label: ${image.labels.map((id) => classMap.get(id) || id).join(', ')}`
+                                                : 'Unlabeled'}
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </Card>
+                    )}
+
+                            {dataset && dataset.task === 'detection' && (
+                        <Card className="space-y-4">
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                    <h3 className="text-lg font-semibold">Detection labeling</h3>
+                                    <p className="text-secondary text-sm">
+                                        Select an image, choose a class, and draw bounding boxes.
+                                    </p>
+                                </div>
+                                <Select
+                                    label="Active class"
+                                    options={classes.map((cls) => ({ value: String(cls.id), label: cls.name }))}
+                                    value={activeClassId !== null ? String(activeClassId) : ''}
+                                    onChange={(e) => setActiveClassId(Number(e.target.value))}
+                                />
+                            </div>
+
+                            <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+                                <div className="space-y-2">
+                                    {images.map((image) => (
+                                        <button
+                                            key={image.id}
+                                            type="button"
+                                            onClick={() => setActiveImageId(image.id)}
+                                            className={`flex w-full items-center gap-2 border-2 px-2 py-1 text-left ${activeImageId === image.id ? 'border-accent-primary' : 'border-graphite-700'}`}
+                                        >
+                                            <span className="text-xs text-secondary">{image.id}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div
+                                        className="relative border-2 border-graphite-700 bg-graphite-900 p-2"
+                                        onMouseDown={handleMouseDown}
+                                        onMouseMove={handleMouseMove}
+                                        onMouseUp={handleMouseUp}
+                                    >
+                                        {selectedImage ? (
+                                            <>
+                                                <img
+                                                    ref={imageRef}
+                                                    src={toFileUrl(selectedImage.path)}
+                                                    alt={selectedImage.id}
+                                                    className="max-h-[520px] w-full object-contain"
+                                                    onLoad={() => drawBoxes(selectedImage.boxes, draftBox)}
+                                                />
+                                                <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />
+                                            </>
+                                        ) : (
+                                            <div className="text-secondary text-sm">Select an image to start labeling.</div>
+                                        )}
+                                    </div>
+
+                                    {selectedImage && (
+                                        <div className="space-y-2">
+                                            <div className="text-xs uppercase tracking-[0.3em] text-haze">Boxes</div>
+                                            {selectedImage.boxes.map((box, index) => (
+                                                <div key={`${selectedImage.id}-${index}`} className="flex items-center justify-between border-2 border-graphite-700 px-2 py-1 text-xs">
+                                                    <span>Class {box.class_id}</span>
+                                                    <button onClick={() => handleRemoveBox(index)} className="text-error">Remove</button>
+                                                </div>
+                                            ))}
+                                            {selectedImage.boxes.length === 0 && (
+                                                <div className="text-xs text-secondary">No boxes yet.</div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </Card>
+                    )}
+                </>
             )}
         </div>
     );

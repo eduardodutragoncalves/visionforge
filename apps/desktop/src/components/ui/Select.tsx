@@ -14,13 +14,13 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
                 <select
                     ref={ref}
                     className={clsx(
-                        "w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-accent-primary transition-all appearance-none",
+                        "w-full bg-graphite-900/80 border border-graphite-700/70 px-3 py-2 text-bone focus:outline-none focus:ring-2 focus:ring-accent-primary transition-all appearance-none rounded-xl",
                         className
                     )}
                     {...props}
                 >
                     {options.map((opt) => (
-                        <option key={opt.value} value={opt.value} className="bg-background text-white">
+                        <option key={opt.value} value={opt.value} className="bg-graphite-900 text-bone">
                             {opt.label}
                         </option>
                     ))}

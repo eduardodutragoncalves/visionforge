@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { StatusPill } from '../../components/ui/StatusPill';
+import { ENGINE_HTTP_URL } from '../../lib/engine';
 
 interface Variant {
     id: string;
@@ -34,7 +35,7 @@ export const ProjectModels = () => {
     const handleExport = async (variantId: string) => {
         setExportingId(variantId);
         setExportResult(null);
-        await fetch(`http://localhost:8000/projects/${projectId}/variants/${variantId}/export`, {
+        await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/variants/${variantId}/export`, {
             method: 'POST'
         });
     };
@@ -42,7 +43,7 @@ export const ProjectModels = () => {
 
     useEffect(() => {
         const fetchVariants = async () => {
-            const res = await fetch(`http://localhost:8000/projects/${projectId}/variants`);
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/variants`);
             if (res.ok) {
                 setVariants(await res.json());
             }

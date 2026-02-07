@@ -14,6 +14,15 @@ def get_projects_root() -> Path:
 def get_project_dir(project_id: str) -> Path:
     return get_projects_root() / project_id
 
+def get_project_dataset_dir(project_id: str) -> Path:
+    return get_project_dir(project_id) / "dataset"
+
+def get_project_dataset_images_dir(project_id: str) -> Path:
+    return get_project_dataset_dir(project_id) / "images"
+
+def get_project_dataset_frames_dir(project_id: str) -> Path:
+    return get_project_dataset_dir(project_id) / "frames"
+
 def get_runs_dir(project_id: str) -> Path:
     return get_project_dir(project_id) / "runs"
 
@@ -25,6 +34,9 @@ def get_variants_dir(project_id: str) -> Path:
 
 def get_variant_dir(project_id: str, variant_id: str) -> Path:
     return get_variants_dir(project_id) / variant_id
+
+def get_dataset_manifest_path(project_id: str) -> Path:
+    return get_project_dir(project_id) / "dataset.json"
 
 def ensure_dirs(path: Path):
     path.mkdir(parents=True, exist_ok=True)

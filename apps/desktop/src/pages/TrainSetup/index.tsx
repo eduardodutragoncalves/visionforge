@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { useEngineStore } from '../../store/engineStore';
+import { ENGINE_HTTP_URL } from '../../lib/engine';
 
 export const TrainSetup = () => {
     const { projectId } = useParams();
@@ -42,7 +43,7 @@ export const TrainSetup = () => {
     const handleStart = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`http://localhost:8000/projects/${projectId}/runs`, {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/runs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -26,6 +26,13 @@
                 "type": "string"
             },
             "default": []
+        },
+        "analysis_type": {
+            "type": "string",
+            "enum": [
+                "classification",
+                "detection"
+            ]
         }
     },
     "required": [

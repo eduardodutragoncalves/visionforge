@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
 import { useEngineStore } from '../store/engineStore';
 import { useTrainingStore } from '../store/trainingStore';
+import { ENGINE_WS_URL } from '../lib/engine';
 
 export const useEngineConnection = () => {
     const wsRef = useRef<WebSocket | null>(null);
@@ -9,7 +10,7 @@ export const useEngineConnection = () => {
 
     useEffect(() => {
         const connect = () => {
-            const ws = new WebSocket('ws://localhost:8000/ws');
+            const ws = new WebSocket(ENGINE_WS_URL);
             wsRef.current = ws;
 
             ws.onopen = () => {

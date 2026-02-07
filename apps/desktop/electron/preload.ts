@@ -18,6 +18,11 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
         const [channel, ...omit] = args
         return ipcRenderer.invoke(channel, ...omit)
     },
-    openDirectory: () => ipcRenderer.invoke('dialog:openDirectory')
+    openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
+    openFiles: () => ipcRenderer.invoke('dialog:openFiles'),
+    openVideo: () => ipcRenderer.invoke('dialog:openVideo'),
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    toggleMaximize: () => ipcRenderer.invoke('window:toggle-maximize'),
+    close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:is-maximized')
 })
-
