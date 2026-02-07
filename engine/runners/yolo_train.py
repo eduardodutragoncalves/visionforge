@@ -29,6 +29,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--model", type=str, default="yolov8n.pt")
+    parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -132,6 +133,7 @@ def main():
             name="yolo_run",
             epochs=args.epochs,
             batch=args.batch,
+            device=args.device,
             exist_ok=True,
             verbose=True
         )

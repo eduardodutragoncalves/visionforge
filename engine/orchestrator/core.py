@@ -7,6 +7,7 @@ from typing import Dict, Optional
 from datetime import datetime
 
 from engine.core.events import manager
+from engine.io import paths, manifests
 from engine.orchestrator.post_processor import handle_training_completion
 
 logger = logging.getLogger("VisionForge.Orchestrator")
@@ -16,7 +17,7 @@ class Orchestrator:
         self.queue = asyncio.Queue()
         self.active_job: Optional[Dict] = None
         self.is_processing = False
-        self.workspace_root = os.path.abspath("workspace") # Defined relatively
+        self.workspace_root = str(paths.get_workspace_root())
 
     async def start(self):
         """Starts the worker loop"""
@@ -69,8 +70,9 @@ class Orchestrator:
         project_id = job["project_id"]
         run_id = job["run_id"]
         config = job["config"]
+        framework = config.get("framework", "dummy")
         
-        logger.info(f"Starting job {run_id} ({config.get('framework', 'dummy')})")
+        logger.info(f"Starting job {run_id} ({framework})")
         
         # Setup paths
         run_dir = os.path.join(self.workspace_root, "projects", project_id, "runs", run_id)
@@ -103,6 +105,14 @@ class Orchestrator:
              project_json_path = os.path.join(project_dir, "project.json")
              
              dataset_path = None
+             dataset_manifest_path = paths.get_dataset_manifest_path(project_id)
+             if dataset_manifest_path.exists():
+                 try:
+                     dataset = manifests.load_manifest(dataset_manifest_path)
+                     dataset_path = dataset.get("root_path") or str(paths.get_project_dataset_dir(project_id))
+                 except Exception:
+                     dataset_path = None
+
              if os.path.exists(project_json_path):
                  with open(project_json_path, 'r') as f:
                      p_data = json.load(f)
@@ -124,6 +134,11 @@ class Orchestrator:
                  "--batch", str(config.get("batch_size", 16)),
                  "--model", config.get("base_model", "yolov8n.pt")
              ]
+
+             gpu_devices = config.get("gpu_devices")
+             if isinstance(gpu_devices, list) and gpu_devices:
+                 device_str = ",".join(str(device) for device in gpu_devices)
+                 script_args.extend(["--device", device_str])
              
         else: # Dummy
             script_path = os.path.join(os.path.dirname(__file__), "../runners/dummy_runner.py")
