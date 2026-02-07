@@ -320,6 +320,16 @@
     letter-spacing: 0.2em;
   }
 
+  .tab-button {
+    @apply border border-graphite-700/70 bg-graphite-900 px-4 py-2 text-[11px] uppercase tracking-[0.32em] text-haze transition-all duration-150;
+    border-radius: 999px;
+  }
+
+  .tab-button-active {
+    @apply border-accent-primary text-bone;
+    box-shadow: 0 0 0 1px rgba(47, 184, 255, 0.4), 0 8px 18px rgba(8, 18, 26, 0.6);
+  }
+
   .loader {
     @apply h-3 w-3 animate-spin rounded-full border-2 border-bone/40 border-t-transparent;
   }

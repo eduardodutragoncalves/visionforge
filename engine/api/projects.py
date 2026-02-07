@@ -163,6 +163,12 @@ async def delete_project(project_id: str):
         paths_list = sorted(project_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True)
         total = len(paths_list) + 1
         deleted = 0
+
+        def should_emit(count: int, total_count: int) -> bool:
+            if total_count <= 20:
+                return True
+            return count % 10 == 0 or count == total_count
+
         await manager.broadcast("project/delete_progress", {
             "project_id": project_id,
             "status": "starting",
@@ -180,7 +186,7 @@ async def delete_project(project_id: str):
             except Exception:
                 pass
             deleted += 1
-            if deleted % 10 == 0 or deleted == total:
+            if should_emit(deleted, total):
                 await manager.broadcast("project/delete_progress", {
                     "project_id": project_id,
                     "status": "deleting",
@@ -194,12 +200,13 @@ async def delete_project(project_id: str):
             project_dir.rmdir()
         except Exception:
             pass
+        deleted += 1
 
         await manager.broadcast("project/delete_progress", {
             "project_id": project_id,
             "status": "completed",
             "total": total,
-            "deleted": total,
+            "deleted": deleted,
             "progress": 100
         })
 

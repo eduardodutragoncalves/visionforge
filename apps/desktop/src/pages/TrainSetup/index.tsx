@@ -25,12 +25,18 @@ export const TrainSetup = () => {
     const [runtime, setRuntime] = useState<'local' | 'conda' | 'docker'>('local');
     const [runtimeName, setRuntimeName] = useState('');
     const [advice, setAdvice] = useState<string | null>(null);
+    const [gpuSelection, setGpuSelection] = useState<'gpu0' | 'gpu1' | 'dual'>('gpu0');
+
+    const gpuDevices = gpuSelection === 'dual' ? [0, 1] : [gpuSelection === 'gpu1' ? 1 : 0];
+    const vramScale = gpuSelection === 'dual' ? 2 : 1;
+    const displayMemoryTotal = (gpu.memoryTotal || 0) * vramScale;
+    const displayMemoryUsed = (gpu.memoryUsed || 0) * vramScale;
 
     // Advisors Logic
     useEffect(() => {
         if (target === 'local') {
             const vramRequiredEst = config.batch_size * 0.15; // Rough heuristic (GB) for YoloV8n
-            const vramAvailable = (gpu.memoryTotal || 10) / 1024; // Convert MB to GB (Mock is MB)
+            const vramAvailable = ((gpu.memoryTotal || 10) * vramScale) / 1024; // Convert MB to GB (Mock is MB)
 
             if (vramRequiredEst > vramAvailable * 0.8) {
                 setAdvice("Warning: High batch size for available VRAM. OOM likely.");
@@ -51,6 +57,8 @@ export const TrainSetup = () => {
                         ...config,
                         target,
                         runtime,
+                        gpu_devices: gpuDevices,
+                        gpu_mode: gpuSelection === 'dual' ? 'multi' : 'single',
                         runtime_config: {
                             conda_env: runtime === 'conda' ? runtimeName : undefined,
                             docker_image: runtime === 'docker' ? runtimeName : undefined
@@ -146,6 +154,16 @@ export const TrainSetup = () => {
                                         <h4 className="text-sm font-bold mb-2">Local Runtime Environment</h4>
                                     </div>
                                     <Select
+                                        label="GPU Selection"
+                                        options={[
+                                            { value: 'gpu0', label: 'GPU 0 (RTX 3090)' },
+                                            { value: 'gpu1', label: 'GPU 1 (RTX 3090)' },
+                                            { value: 'dual', label: 'Both GPUs (Data Parallel)' }
+                                        ]}
+                                        value={gpuSelection}
+                                        onChange={e => setGpuSelection(e.target.value as typeof gpuSelection)}
+                                    />
+                                    <Select
                                         label="Environment Type"
                                         options={[
                                             { value: 'local', label: 'System Python (venv)' },
@@ -198,16 +216,16 @@ export const TrainSetup = () => {
                             <div className="space-y-4">
                                 <div>
                                     <div className="text-secondary text-sm">GPU</div>
-                                    <div className="font-mono">{gpu.name || 'Detecting...'}</div>
+                                    <div className="font-mono">{gpuSelection === 'dual' ? 'GPU 0 + GPU 1' : `GPU ${gpuSelection === 'gpu1' ? 1 : 0}`}</div>
                                 </div>
                                 <div>
                                     <div className="text-secondary text-sm">VRAM</div>
-                                    <div className="font-mono">{gpu.memoryUsed} / {gpu.memoryTotal} MB</div>
+                                    <div className="font-mono">{displayMemoryUsed} / {displayMemoryTotal} MB</div>
                                 </div>
                                 <div className="h-2 bg-gray-800 rounded overflow-hidden mt-1">
                                     <div
                                         className="h-full bg-accent-primary"
-                                        style={{ width: `${(gpu.memoryUsed / (gpu.memoryTotal || 1)) * 100}%` }}
+                                        style={{ width: `${(displayMemoryUsed / (displayMemoryTotal || 1)) * 100}%` }}
                                     ></div>
                                 </div>
                             </div>

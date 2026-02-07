@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -52,6 +52,7 @@ export const Projects = () => {
     const [creating, setCreating] = useState(false);
     const [deleteState, setDeleteState] = useState<DeleteState | null>(null);
     const [deleteError, setDeleteError] = useState<string | null>(null);
+    const deleteStateRef = useRef<DeleteState | null>(null);
 
     const loadProjects = async () => {
         setLoading(true);
@@ -75,13 +76,17 @@ export const Projects = () => {
     }, []);
 
     useEffect(() => {
-        if (!deleteState) return;
+        deleteStateRef.current = deleteState;
+    }, [deleteState]);
+
+    useEffect(() => {
         const ws = new WebSocket(ENGINE_WS_URL);
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
                 if (msg.event !== 'project/delete_progress') return;
-                if (msg.data.project_id !== deleteState.projectId) return;
+                const current = deleteStateRef.current;
+                if (!current || msg.data.project_id !== current.projectId) return;
                 setDeleteState((prev) => {
                     if (!prev) return prev;
                     return {
@@ -93,14 +98,34 @@ export const Projects = () => {
                     };
                 });
                 if (msg.data.status === 'completed') {
-                    setProjects((prev) => prev.filter((project) => project.id !== deleteState.projectId));
+                    setProjects((prev) => prev.filter((project) => project.id !== current.projectId));
                 }
             } catch {
                 // ignore
             }
         };
         return () => ws.close();
-    }, [deleteState?.projectId]);
+    }, []);
+
+    useEffect(() => {
+        if (!deleteState || deleteState.status === 'completed' || deleteState.status === 'error') return;
+        let canceled = false;
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/projects/${deleteState.projectId}`);
+                if (res.status === 404 && !canceled) {
+                    setDeleteState((prev) => (prev ? { ...prev, status: 'completed', progress: 100 } : prev));
+                    setProjects((prev) => prev.filter((project) => project.id !== deleteState.projectId));
+                }
+            } catch {
+                // ignore
+            }
+        }, 2000);
+        return () => {
+            canceled = true;
+            clearInterval(interval);
+        };
+    }, [deleteState?.projectId, deleteState?.status]);
 
     const handleCreate = async () => {
         const trimmedName = form.name.trim();

@@ -64,6 +64,7 @@ export const ProjectDataset = () => {
     const [activeImageId, setActiveImageId] = useState<string | null>(null);
     const [previewImageId, setPreviewImageId] = useState<string | null>(null);
     const [activeClassId, setActiveClassId] = useState<number | null>(null);
+    const [classificationTab, setClassificationTab] = useState<'unlabeled' | 'labeled'>('unlabeled');
     const [frameInterval, setFrameInterval] = useState(30);
     const [draftBox, setDraftBox] = useState<BoundingBox | null>(null);
     const [isDrawing, setIsDrawing] = useState(false);
@@ -87,6 +88,15 @@ export const ProjectDataset = () => {
         () => images.find((image) => image.id === previewImageId) || null,
         [images, previewImageId]
     );
+    const labeledImages = useMemo(
+        () => images.filter((image) => image.labels.length > 0),
+        [images]
+    );
+    const unlabeledImages = useMemo(
+        () => images.filter((image) => image.labels.length === 0),
+        [images]
+    );
+    const visibleImages = classificationTab === 'labeled' ? labeledImages : unlabeledImages;
 
     const fetchDataset = async () => {
         if (!projectId) return;
@@ -273,6 +283,30 @@ export const ProjectDataset = () => {
         );
     };
 
+    const handleDeleteImages = async (imageIds: string[]) => {
+        if (!projectId || imageIds.length === 0) return;
+        const confirmed = window.confirm(`Delete ${imageIds.length} image(s) from this project?`);
+        if (!confirmed) return;
+        const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_ids: imageIds })
+        });
+        if (!res.ok) return;
+        setImages((prev) => prev.filter((image) => !imageIds.includes(image.id)));
+        if (activeImageId && imageIds.includes(activeImageId)) {
+            setActiveImageId(null);
+        }
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            imageIds.forEach((id) => next.delete(id));
+            return next;
+        });
+        if (previewImageId && imageIds.includes(previewImageId)) {
+            setPreviewImageId(null);
+        }
+    };
+
     const handleAssignClassSingle = async (imageId: string, classId: number) => {
         if (!projectId) return;
         await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}/labels`, {
@@ -300,26 +334,7 @@ export const ProjectDataset = () => {
     };
 
     const handleDeleteImage = async (imageId: string) => {
-        if (!projectId) return;
-        const confirmed = window.confirm('Delete this image from the project?');
-        if (!confirmed) return;
-        const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/images/${imageId}`, {
-            method: 'DELETE'
-        });
-        if (!res.ok) return;
-        const remaining = images.filter((image) => image.id !== imageId);
-        setImages(remaining);
-        setSelectedIds((prev) => {
-            const next = new Set(prev);
-            next.delete(imageId);
-            return next;
-        });
-        if (activeImageId === imageId) {
-            setActiveImageId(remaining[0]?.id ?? null);
-        }
-        if (previewImageId === imageId) {
-            setPreviewImageId(null);
-        }
+        await handleDeleteImages([imageId]);
     };
 
     const updateBoxes = async (imageId: string, boxes: BoundingBox[]) => {
@@ -437,6 +452,10 @@ export const ProjectDataset = () => {
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
     }, [previewImageId]);
+
+    useEffect(() => {
+        setSelectedIds(new Set());
+    }, [classificationTab]);
 
     return (
         <div className="animate-fade-in space-y-6">
@@ -618,10 +637,42 @@ export const ProjectDataset = () => {
                                 <Button size="sm" variant="ghost" onClick={handleClearLabels}>
                                     Clear labels
                                 </Button>
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="border-accent-error/60 text-accent-error hover:text-white"
+                                    onClick={() => handleDeleteImages(Array.from(selectedIds))}
+                                    disabled={selectedIds.size === 0}
+                                >
+                                    Delete selected
+                                </Button>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    className={clsx(
+                                        'tab-button',
+                                        classificationTab === 'unlabeled' && 'tab-button-active'
+                                    )}
+                                    onClick={() => setClassificationTab('unlabeled')}
+                                >
+                                    Unlabeled ({unlabeledImages.length})
+                                </button>
+                                <button
+                                    type="button"
+                                    className={clsx(
+                                        'tab-button',
+                                        classificationTab === 'labeled' && 'tab-button-active'
+                                    )}
+                                    onClick={() => setClassificationTab('labeled')}
+                                >
+                                    Labeled ({labeledImages.length})
+                                </button>
                             </div>
 
                             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                                {images.map((image) => (
+                                {visibleImages.map((image) => (
                                     <button
                                         key={image.id}
                                         type="button"

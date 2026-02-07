@@ -56,6 +56,9 @@ class IngestVideoRequest(BaseModel):
     frame_interval: int
     max_frames: Optional[int] = None
 
+class DeleteImagesRequest(BaseModel):
+    image_ids: List[str]
+
 @router.get("/projects/{project_id}/dataset")
 async def get_dataset(project_id: str):
     try:
@@ -92,6 +95,13 @@ async def get_image_file(project_id: str, image_id: str):
 async def delete_image(project_id: str, image_id: str):
     try:
         return dataset_service.delete_image(project_id, image_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/projects/{project_id}/dataset/images/delete")
+async def delete_images(project_id: str, request: DeleteImagesRequest):
+    try:
+        return dataset_service.delete_images(project_id, request.image_ids)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

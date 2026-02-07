@@ -310,29 +310,45 @@ class DatasetService:
         raise ValueError("Image not found")
 
     def delete_image(self, project_id: str, image_id: str) -> Dict[str, Any]:
+        result = self.delete_images(project_id, [image_id])
+        if image_id not in result["deleted_ids"]:
+            raise ValueError("Image not found")
+        return {"deleted": True, "image_id": image_id}
+
+    def delete_images(self, project_id: str, image_ids: List[str]) -> Dict[str, Any]:
         dataset = self._load_or_create_dataset(project_id)
         images = dataset.get("images", [])
-        target = None
-        for image in images:
-            if image["id"] == image_id:
-                target = image
-                break
-        if not target:
-            raise ValueError("Image not found")
-
-        image_path = Path(target["path"])
+        images_by_id = {image["id"]: image for image in images}
         dataset_dir = paths.get_project_dataset_dir(project_id).resolve()
-        resolved_path = image_path.resolve()
-        if str(resolved_path).startswith(str(dataset_dir)) and resolved_path.exists():
-            try:
-                resolved_path.unlink()
-            except OSError:
-                logger.warning("Unable to delete image file: %s", resolved_path)
 
-        dataset["images"] = [img for img in images if img["id"] != image_id]
-        dataset["updated_at"] = _now()
-        manifests.save_manifest(paths.get_dataset_manifest_path(project_id), dataset, "dataset")
-        return {"deleted": True, "image_id": image_id}
+        deleted_ids = []
+        missing_ids = []
+
+        for image_id in image_ids:
+            target = images_by_id.get(image_id)
+            if not target:
+                missing_ids.append(image_id)
+                continue
+            image_path = Path(target["path"])
+            resolved_path = image_path.resolve()
+            if str(resolved_path).startswith(str(dataset_dir)) and resolved_path.exists():
+                try:
+                    resolved_path.unlink()
+                except OSError:
+                    logger.warning("Unable to delete image file: %s", resolved_path)
+            deleted_ids.append(image_id)
+
+        if deleted_ids:
+            dataset["images"] = [img for img in images if img["id"] not in set(deleted_ids)]
+            dataset["updated_at"] = _now()
+            manifests.save_manifest(paths.get_dataset_manifest_path(project_id), dataset, "dataset")
+
+        return {
+            "deleted": len(deleted_ids),
+            "missing": len(missing_ids),
+            "deleted_ids": deleted_ids,
+            "missing_ids": missing_ids
+        }
 
     async def validate_current_dataset(self, project_id: str):
         dataset = self._load_or_create_dataset(project_id)
