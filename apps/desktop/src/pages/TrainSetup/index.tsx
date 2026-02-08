@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -27,6 +27,7 @@ export const TrainSetup = () => {
         framework: 'ultralytics',
         img_size: 640
     });
+    const [datasetTask, setDatasetTask] = useState<'classification' | 'detection' | null>(null);
 
     const [target, setTarget] = useState('local');
     const [runtime, setRuntime] = useState<'local' | 'conda' | 'docker'>('local');
@@ -53,6 +54,57 @@ export const TrainSetup = () => {
             }
         }
     }, [config.batch_size, primaryGpu.memoryTotal, target]);
+
+    useEffect(() => {
+        if (!projectId) return;
+        const loadDatasetTask = async () => {
+            try {
+                const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/dataset`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const task = data?.task === 'classification' ? 'classification' : 'detection';
+                setDatasetTask(task);
+            } catch {
+                // ignore
+            }
+        };
+        loadDatasetTask();
+    }, [projectId]);
+
+    const modelOptions = useMemo(() => {
+        if (datasetTask === 'classification') {
+            return [
+                { value: 'yolo26n-cls.pt', label: 'YOLO26 Nano (cls)' },
+                { value: 'yolo26s-cls.pt', label: 'YOLO26 Small (cls)' },
+                { value: 'yolo26m-cls.pt', label: 'YOLO26 Medium (cls)' },
+                { value: 'yolo26l-cls.pt', label: 'YOLO26 Large (cls)' },
+                { value: 'yolo26x-cls.pt', label: 'YOLO26 XLarge (cls)' },
+                { value: 'yolo11n-cls.pt', label: 'YOLO11 Nano (cls)' },
+                { value: 'yolo11s-cls.pt', label: 'YOLO11 Small (cls)' },
+                { value: 'yolo11m-cls.pt', label: 'YOLO11 Medium (cls)' },
+                { value: 'yolo11l-cls.pt', label: 'YOLO11 Large (cls)' },
+                { value: 'yolo11x-cls.pt', label: 'YOLO11 XLarge (cls)' },
+                { value: 'yolov8n-cls.pt', label: 'YOLOv8 Nano (cls)' },
+                { value: 'yolov8s-cls.pt', label: 'YOLOv8 Small (cls)' },
+                { value: 'yolov8m-cls.pt', label: 'YOLOv8 Medium (cls)' },
+                { value: 'yolov8l-cls.pt', label: 'YOLOv8 Large (cls)' },
+                { value: 'yolov8x-cls.pt', label: 'YOLOv8 XLarge (cls)' }
+            ];
+        }
+        return [
+            { value: 'yolov8n.pt', label: 'YOLOv8 Nano' },
+            { value: 'yolov8s.pt', label: 'YOLOv8 Small' },
+            { value: 'yolov8m.pt', label: 'YOLOv8 Medium' }
+        ];
+    }, [datasetTask]);
+
+    useEffect(() => {
+        if (modelOptions.length === 0) return;
+        const values = new Set(modelOptions.map((option) => option.value));
+        if (!values.has(config.base_model)) {
+            setConfig((prev) => ({ ...prev, base_model: modelOptions[0].value }));
+        }
+    }, [modelOptions, config.base_model]);
 
     const handleStart = async () => {
         setLoading(true);
@@ -137,11 +189,7 @@ export const TrainSetup = () => {
                             />
                             <Select
                                 label="Base Model"
-                                options={[
-                                    { value: 'yolov8n.pt', label: 'YOLOv8 Nano' },
-                                    { value: 'yolov8s.pt', label: 'YOLOv8 Small' },
-                                    { value: 'yolov8m.pt', label: 'YOLOv8 Medium' },
-                                ]}
+                                options={modelOptions}
                                 value={config.base_model}
                                 onChange={e => setConfig({ ...config, base_model: e.target.value })}
                             />
