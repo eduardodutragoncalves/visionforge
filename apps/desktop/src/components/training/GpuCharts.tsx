@@ -78,6 +78,14 @@ export const GpuCharts = () => {
             </div>
             <div>
                 <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">Utilization (%)</div>
+                <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.3em] text-secondary mb-2">
+                    {gpus.map((gpu, idx) => (
+                        <div key={`util-legend-${gpu.index}`} className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
+                            <span>GPU {gpu.index}</span>
+                        </div>
+                    ))}
+                </div>
                 <div className="h-40">
                 <ResponsiveContainer>
                     <LineChart data={chartData}>
@@ -106,6 +114,14 @@ export const GpuCharts = () => {
 
             <div>
                 <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">VRAM (GB)</div>
+                <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.3em] text-secondary mb-2">
+                    {gpus.map((gpu, idx) => (
+                        <div key={`mem-legend-${gpu.index}`} className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
+                            <span>GPU {gpu.index}</span>
+                        </div>
+                    ))}
+                </div>
                 <div className="h-40">
                 <ResponsiveContainer>
                     <LineChart data={chartData}>
@@ -149,6 +165,14 @@ export const GpuCharts = () => {
 
             <div>
                 <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">Temperature (°C)</div>
+                <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.3em] text-secondary mb-2">
+                    {gpus.map((gpu, idx) => (
+                        <div key={`temp-legend-${gpu.index}`} className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
+                            <span>GPU {gpu.index}</span>
+                        </div>
+                    ))}
+                </div>
                 <div className="h-40">
                 <ResponsiveContainer>
                     <LineChart data={chartData}>
