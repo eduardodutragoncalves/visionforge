@@ -30,6 +30,7 @@ export const GpuCharts = () => {
                 row[`gpu${gpu.index}_mem`] = used;
                 row[`gpu${gpu.index}_mem_total`] = total;
                 row[`gpu${gpu.index}_mem_pct`] = total > 0 ? Math.round((used / total) * 1000) / 10 : 0;
+                row[`gpu${gpu.index}_temp`] = gpu.temperature;
             });
             return row;
         });
@@ -47,8 +48,15 @@ export const GpuCharts = () => {
             const used = Math.round((gpu.memoryUsed / 1024) * 100) / 100;
             const total = Math.round((gpu.memoryTotal / 1024) * 100) / 100;
             const pct = total > 0 ? Math.round((used / total) * 1000) / 10 : 0;
-            return { index: gpu.index, used, total, pct };
+            return { index: gpu.index, used, total, pct, temp: gpu.temperature };
         });
+    }, [gpus]);
+
+    const maxTemp = useMemo(() => {
+        if (gpus.length === 0) return 100;
+        const temps = gpus.map((gpu) => gpu.temperature || 0);
+        const max = Math.max(...temps, 100);
+        return Math.ceil(max / 10) * 10;
     }, [gpus]);
 
     if (chartData.length === 0 || gpus.length === 0) {
@@ -64,6 +72,7 @@ export const GpuCharts = () => {
                         className="border border-graphite-700/70 bg-graphite-900 px-3 py-2 rounded"
                     >
                         GPU {gpu.index}: <span className="text-bone">{gpu.used} / {gpu.total} GB</span> ({gpu.pct}%)
+                        <span className="ml-2 text-secondary">· {gpu.temp}°C</span>
                     </div>
                 ))}
             </div>
@@ -131,6 +140,34 @@ export const GpuCharts = () => {
                                 strokeWidth={2}
                                 dot={false}
                                 name={`GPU ${gpu.index} VRAM (GB)`}
+                            />
+                        ))}
+                    </LineChart>
+                </ResponsiveContainer>
+                </div>
+            </div>
+
+            <div>
+                <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">Temperature (°C)</div>
+                <div className="h-40">
+                <ResponsiveContainer>
+                    <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                        <XAxis dataKey="time" stroke="#6b7280" hide />
+                        <YAxis stroke="#6b7280" domain={[0, maxTemp]} />
+                        <Tooltip
+                            contentStyle={{ backgroundColor: '#0f0f13', borderColor: '#333' }}
+                            itemStyle={{ color: '#fff' }}
+                        />
+                        {gpus.map((gpu, idx) => (
+                            <Line
+                                key={`temp-${gpu.index}`}
+                                type="monotone"
+                                dataKey={`gpu${gpu.index}_temp`}
+                                stroke={LINE_COLORS[idx % LINE_COLORS.length]}
+                                strokeWidth={2}
+                                dot={false}
+                                name={`GPU ${gpu.index} Temp (°C)`}
                             />
                         ))}
                     </LineChart>
