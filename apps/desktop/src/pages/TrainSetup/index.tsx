@@ -5,12 +5,17 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { useEngineStore } from '../../store/engineStore';
+import { useTrainingStore } from '../../store/trainingStore';
 import { ENGINE_HTTP_URL } from '../../lib/engine';
 
 export const TrainSetup = () => {
     const { projectId } = useParams();
     const navigate = useNavigate();
     const { gpu, gpus } = useEngineStore(state => ({ gpu: state.gpu, gpus: state.gpus }));
+    const { activeRunId, status } = useTrainingStore(state => ({
+        activeRunId: state.activeRunId,
+        status: state.status
+    }));
 
     const [loading, setLoading] = useState(false);
     const [config, setConfig] = useState({
@@ -87,6 +92,25 @@ export const TrainSetup = () => {
                 <h2 className="text-3xl font-bold">Training Configuration</h2>
                 <p className="text-secondary">Setup experiment hyperparameters for {projectId}</p>
             </header>
+
+            {activeRunId && (status === 'starting' || status === 'training') && (
+                <Card className="border border-accent-primary/30 bg-graphite-900/60">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <div className="text-xs uppercase tracking-[0.4em] text-haze">Training in progress</div>
+                            <div className="text-secondary text-sm mt-2">
+                                Run <span className="text-bone font-mono">{activeRunId.slice(0, 8)}</span> is still running.
+                            </div>
+                        </div>
+                        <Button
+                            variant="secondary"
+                            onClick={() => navigate(`/projects/${projectId}/train/live/${activeRunId}`)}
+                        >
+                            Voltar para o treino
+                        </Button>
+                    </div>
+                </Card>
+            )}
 
             <div className="grid grid-cols-3 gap-6">
 
