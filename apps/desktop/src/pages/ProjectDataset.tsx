@@ -821,6 +821,20 @@ export const ProjectDataset = () => {
     }, [dataset?.task, classes, previewImageId, selectedIds, handleAssignClass, handleAssignClassSingle]);
 
     useEffect(() => {
+        if (dataset?.task !== 'classification') return;
+        const handleDeleteShortcut = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+            if (isEditableTarget(event.target)) return;
+            if (event.key !== 'Delete') return;
+            if (selectedIds.size === 0) return;
+            event.preventDefault();
+            void handleDeleteImages(Array.from(selectedIds));
+        };
+        window.addEventListener('keydown', handleDeleteShortcut);
+        return () => window.removeEventListener('keydown', handleDeleteShortcut);
+    }, [dataset?.task, selectedIds, handleDeleteImages]);
+
+    useEffect(() => {
         setSelectedIds(new Set());
         if (classificationTab !== 'labeled') {
             setLabeledClassFilter(null);
