@@ -38,6 +38,7 @@ export const LiveRun = () => {
     const currentEpoch = run?.currentEpoch ?? 0;
     const totalEpochs = run?.totalEpochs ?? 0;
     const config = run?.config ?? {};
+    const runName = run?.name ?? '';
     const configItems = [
         { label: 'Framework', value: config.framework },
         { label: 'Model', value: config.base_model },
@@ -65,15 +66,16 @@ export const LiveRun = () => {
                                 navigate(`/projects/${projectId}/train/live/${item.runId}`);
                             }}
                         >
-                            {item.runId.slice(0, 8)}
-                            {item.config?.base_model ? ` · ${item.config.base_model}` : ''}
+                            {item.name ? item.name : item.runId.slice(0, 8)}
                         </button>
                     ))}
                 </div>
             )}
             <header className="flex justify-between items-center mb-6">
                 <div>
-                    <h2 className="text-2xl font-bold">Training Run <span className="text-accent">{runId?.slice(0, 8)}</span></h2>
+                    <h2 className="text-2xl font-bold">
+                        Training Run <span className="text-accent">{runName || runId?.slice(0, 8)}</span>
+                    </h2>
                     <p className="text-secondary">Project: {projectId}</p>
                 </div>
                 <div className="flex gap-4 items-center">

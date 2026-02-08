@@ -56,7 +56,8 @@ export const useEngineConnection = () => {
                             msg.data.run_id,
                             msg.data.total_epochs || 10,
                             msg.data.project_id,
-                            msg.data.config
+                            msg.data.config,
+                            msg.data.run_name
                         );
                     } else if (msg.event === 'train/completed') {
                         if (msg.data?.run_id) {

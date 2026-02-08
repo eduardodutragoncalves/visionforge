@@ -18,7 +18,7 @@ interface TrainingState {
     runs: Record<string, RunState>;
     activeRunId: string | null;
 
-    startRun: (runId: string, totalEpochs: number, projectId?: string, config?: Record<string, any>) => void;
+    startRun: (runId: string, totalEpochs: number, projectId?: string, config?: Record<string, any>, name?: string) => void;
     addMetric: (runId: string, metric: MetricPoint) => void;
     addLog: (runId: string, log: LogEntry) => void;
     setStatus: (runId: string, status: RunState['status']) => void;
@@ -37,9 +37,10 @@ interface RunState {
     logs: LogEntry[];
     startedAt?: number;
     config?: Record<string, any>;
+    name?: string;
 }
 
-const createRunState = (runId: string, totalEpochs: number, projectId?: string, config?: Record<string, any>): RunState => ({
+const createRunState = (runId: string, totalEpochs: number, projectId?: string, config?: Record<string, any>, name?: string): RunState => ({
     runId,
     projectId,
     status: 'starting',
@@ -48,14 +49,15 @@ const createRunState = (runId: string, totalEpochs: number, projectId?: string, 
     logs: [],
     currentEpoch: 0,
     startedAt: Date.now(),
-    config
+    config,
+    name
 });
 
 export const useTrainingStore = create<TrainingState>((set) => ({
     runs: {},
     activeRunId: null,
 
-    startRun: (runId, totalEpochs, projectId, config) => set((state) => {
+    startRun: (runId, totalEpochs, projectId, config, name) => set((state) => {
         const existing = state.runs[runId];
         const next = existing
             ? {
@@ -63,9 +65,10 @@ export const useTrainingStore = create<TrainingState>((set) => ({
                 status: existing.status === 'idle' ? 'starting' : existing.status,
                 totalEpochs: totalEpochs || existing.totalEpochs,
                 projectId: projectId ?? existing.projectId,
-                config: config ?? existing.config
+                config: config ?? existing.config,
+                name: name ?? existing.name
             }
-            : createRunState(runId, totalEpochs, projectId, config);
+            : createRunState(runId, totalEpochs, projectId, config, name);
         return {
             activeRunId: runId,
             runs: {

@@ -114,6 +114,14 @@ class Orchestrator:
         logs_path = os.path.join(run_dir, "logs.txt")
         metrics_path = os.path.join(run_dir, "metrics.jsonl")
         run_json_path = os.path.join(run_dir, "run.json")
+        run_name = None
+        if os.path.exists(run_json_path):
+            try:
+                with open(run_json_path, "r") as f:
+                    run_data = json.load(f)
+                    run_name = run_data.get("name") or run_data.get("run_name")
+            except Exception:
+                run_name = None
 
         # Update run.json status to running
         self._update_run_status(run_json_path, "running")
@@ -123,7 +131,8 @@ class Orchestrator:
             "run_id": run_id,
             "project_id": project_id,
             "total_epochs": config.get("epochs", 10),
-            "config": config
+            "config": config,
+            "run_name": run_name
         })
 
         # Runtime configuration
