@@ -136,7 +136,13 @@ export const LiveRun = () => {
 
             <Card className="h-full flex flex-col">
                 <h3 className="mb-4">GPU Usage</h3>
-                <GpuCharts />
+                <GpuCharts
+                    visibleGpuIndices={
+                        Array.isArray(config.gpu_devices) && config.gpu_devices.length > 0
+                            ? config.gpu_devices.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value))
+                            : undefined
+                    }
+                />
             </Card>
         </div>
     );

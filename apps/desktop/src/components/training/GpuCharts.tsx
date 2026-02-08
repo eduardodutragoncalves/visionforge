@@ -12,18 +12,30 @@ import { useEngineStore } from '../../store/engineStore';
 
 const LINE_COLORS = ['#2fb8ff', '#ff5c6f', '#28d17c', '#f6b73c'];
 
-export const GpuCharts = () => {
+export const GpuCharts = ({ visibleGpuIndices }: { visibleGpuIndices?: number[] }) => {
     const { gpuTimeline, gpus } = useEngineStore((state) => ({
         gpuTimeline: state.gpuTimeline,
         gpus: state.gpus
     }));
+
+    const visibleGpuSet = useMemo(() => {
+        if (!visibleGpuIndices || visibleGpuIndices.length === 0) return null;
+        return new Set(visibleGpuIndices.map((value) => Number(value)).filter((value) => Number.isFinite(value)));
+    }, [visibleGpuIndices]);
+
+    const visibleGpus = useMemo(() => {
+        if (!visibleGpuSet || visibleGpuSet.size === 0) return gpus;
+        return gpus.filter((gpu) => visibleGpuSet.has(gpu.index));
+    }, [gpus, visibleGpuSet]);
 
     const chartData = useMemo(() => {
         return gpuTimeline.map((entry) => {
             const row: Record<string, number | string> = {
                 time: new Date(entry.timestamp * 1000).toLocaleTimeString()
             };
-            entry.gpus.forEach((gpu) => {
+            entry.gpus
+                .filter((gpu) => !visibleGpuSet || visibleGpuSet.has(gpu.index))
+                .forEach((gpu) => {
                 const used = Math.round((gpu.memoryUsed / 1024) * 100) / 100;
                 const total = Math.round((gpu.memoryTotal / 1024) * 100) / 100;
                 row[`gpu${gpu.index}_util`] = gpu.utilization;
@@ -34,32 +46,32 @@ export const GpuCharts = () => {
             });
             return row;
         });
-    }, [gpuTimeline]);
+    }, [gpuTimeline, visibleGpuSet]);
 
     const maxMemTotal = useMemo(() => {
-        const totals = gpus.map((gpu) => gpu.memoryTotal);
+        const totals = visibleGpus.map((gpu) => gpu.memoryTotal);
         if (totals.length === 0) return 0;
         return Math.max(...totals) / 1024;
-    }, [gpus]);
+    }, [visibleGpus]);
 
     const latestSnapshot = useMemo(() => {
-        if (gpus.length === 0) return [];
-        return gpus.map((gpu) => {
+        if (visibleGpus.length === 0) return [];
+        return visibleGpus.map((gpu) => {
             const used = Math.round((gpu.memoryUsed / 1024) * 100) / 100;
             const total = Math.round((gpu.memoryTotal / 1024) * 100) / 100;
             const pct = total > 0 ? Math.round((used / total) * 1000) / 10 : 0;
             return { index: gpu.index, used, total, pct, temp: gpu.temperature };
         });
-    }, [gpus]);
+    }, [visibleGpus]);
 
     const maxTemp = useMemo(() => {
-        if (gpus.length === 0) return 100;
-        const temps = gpus.map((gpu) => gpu.temperature || 0);
+        if (visibleGpus.length === 0) return 100;
+        const temps = visibleGpus.map((gpu) => gpu.temperature || 0);
         const max = Math.max(...temps, 100);
         return Math.ceil(max / 10) * 10;
-    }, [gpus]);
+    }, [visibleGpus]);
 
-    if (chartData.length === 0 || gpus.length === 0) {
+    if (chartData.length === 0 || visibleGpus.length === 0) {
         return <div className="h-40 flex items-center justify-center text-secondary">No GPU data yet</div>;
     }
 
@@ -79,7 +91,7 @@ export const GpuCharts = () => {
             <div>
                 <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">Utilization (%)</div>
                 <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.3em] text-secondary mb-2">
-                    {gpus.map((gpu, idx) => (
+                    {visibleGpus.map((gpu, idx) => (
                         <div key={`util-legend-${gpu.index}`} className="flex items-center gap-2">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
                             <span>GPU {gpu.index}</span>
@@ -96,7 +108,7 @@ export const GpuCharts = () => {
                             contentStyle={{ backgroundColor: '#0f0f13', borderColor: '#333' }}
                             itemStyle={{ color: '#fff' }}
                         />
-                        {gpus.map((gpu, idx) => (
+                        {visibleGpus.map((gpu, idx) => (
                             <Line
                                 key={`util-${gpu.index}`}
                                 type="monotone"
@@ -115,7 +127,7 @@ export const GpuCharts = () => {
             <div>
                 <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">VRAM (GB)</div>
                 <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.3em] text-secondary mb-2">
-                    {gpus.map((gpu, idx) => (
+                    {visibleGpus.map((gpu, idx) => (
                         <div key={`mem-legend-${gpu.index}`} className="flex items-center gap-2">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
                             <span>GPU {gpu.index}</span>
@@ -147,7 +159,7 @@ export const GpuCharts = () => {
                                 return value;
                             }}
                         />
-                        {gpus.map((gpu, idx) => (
+                        {visibleGpus.map((gpu, idx) => (
                             <Line
                                 key={`mem-${gpu.index}`}
                                 type="monotone"
@@ -166,7 +178,7 @@ export const GpuCharts = () => {
             <div>
                 <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">Temperature (°C)</div>
                 <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.3em] text-secondary mb-2">
-                    {gpus.map((gpu, idx) => (
+                    {visibleGpus.map((gpu, idx) => (
                         <div key={`temp-legend-${gpu.index}`} className="flex items-center gap-2">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
                             <span>GPU {gpu.index}</span>
@@ -183,7 +195,7 @@ export const GpuCharts = () => {
                             contentStyle={{ backgroundColor: '#0f0f13', borderColor: '#333' }}
                             itemStyle={{ color: '#fff' }}
                         />
-                        {gpus.map((gpu, idx) => (
+                        {visibleGpus.map((gpu, idx) => (
                             <Line
                                 key={`temp-${gpu.index}`}
                                 type="monotone"
