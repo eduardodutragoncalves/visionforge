@@ -5,6 +5,7 @@ export interface MetricPoint {
     loss: number;
     accuracy: number;
     lr: number;
+    total_epochs?: number;
 }
 
 export interface LogEntry {
@@ -14,46 +15,105 @@ export interface LogEntry {
 }
 
 interface TrainingState {
+    runs: Record<string, RunState>;
     activeRunId: string | null;
+
+    startRun: (runId: string, totalEpochs: number, projectId?: string) => void;
+    addMetric: (runId: string, metric: MetricPoint) => void;
+    addLog: (runId: string, log: LogEntry) => void;
+    setStatus: (runId: string, status: RunState['status']) => void;
+    setActiveRun: (runId: string | null) => void;
+    resetRun: (runId: string) => void;
+    resetAll: () => void;
+}
+
+interface RunState {
+    runId: string;
+    projectId?: string;
     status: 'idle' | 'starting' | 'training' | 'completed' | 'failed' | 'stopped';
     currentEpoch: number;
     totalEpochs: number;
     metrics: MetricPoint[];
     logs: LogEntry[];
-
-    startRun: (runId: string, totalEpochs: number) => void;
-    addMetric: (metric: MetricPoint) => void;
-    addLog: (log: LogEntry) => void;
-    setStatus: (status: TrainingState['status']) => void;
-    reset: () => void;
+    startedAt?: number;
 }
 
-export const useTrainingStore = create<TrainingState>((set) => ({
-    activeRunId: null,
-    status: 'idle',
-    currentEpoch: 0,
-    totalEpochs: 0,
+const createRunState = (runId: string, totalEpochs: number, projectId?: string): RunState => ({
+    runId,
+    projectId,
+    status: 'starting',
+    totalEpochs,
     metrics: [],
     logs: [],
+    currentEpoch: 0,
+    startedAt: Date.now()
+});
 
-    startRun: (runId, totalEpochs) => set({
+export const useTrainingStore = create<TrainingState>((set) => ({
+    runs: {},
+    activeRunId: null,
+
+    startRun: (runId, totalEpochs, projectId) => set((state) => ({
         activeRunId: runId,
-        status: 'starting',
-        totalEpochs,
-        metrics: [],
-        logs: [],
-        currentEpoch: 0
+        runs: {
+            ...state.runs,
+            [runId]: createRunState(runId, totalEpochs, projectId)
+        }
+    })),
+
+    addMetric: (runId, metric) => set((state) => {
+        const run = state.runs[runId] ?? createRunState(runId, metric.total_epochs || 0);
+        return {
+            runs: {
+                ...state.runs,
+                [runId]: {
+                    ...run,
+                    metrics: [...run.metrics, metric],
+                    currentEpoch: metric.epoch,
+                    totalEpochs: metric.total_epochs || run.totalEpochs,
+                    status: run.status === 'starting' ? 'training' : run.status
+                }
+            }
+        };
     }),
 
-    addMetric: (metric) => set((state) => ({
-        metrics: [...state.metrics, metric],
-        currentEpoch: metric.epoch
-    })),
+    addLog: (runId, log) => set((state) => {
+        const run = state.runs[runId] ?? createRunState(runId, 0);
+        return {
+            runs: {
+                ...state.runs,
+                [runId]: {
+                    ...run,
+                    logs: [...run.logs.slice(-500), log]
+                }
+            }
+        };
+    }),
 
-    addLog: (log) => set((state) => ({
-        logs: [...state.logs.slice(-500), log] // Keep last 500 logs
-    })),
+    setStatus: (runId, status) => set((state) => {
+        const run = state.runs[runId] ?? createRunState(runId, 0);
+        return {
+            runs: {
+                ...state.runs,
+                [runId]: {
+                    ...run,
+                    status
+                }
+            }
+        };
+    }),
 
-    setStatus: (status) => set({ status }),
-    reset: () => set({ activeRunId: null, status: 'idle', metrics: [], logs: [] })
+    setActiveRun: (runId) => set({ activeRunId: runId }),
+
+    resetRun: (runId) => set((state) => {
+        if (!state.runs[runId]) return state;
+        const next = { ...state.runs };
+        delete next[runId];
+        return {
+            runs: next,
+            activeRunId: state.activeRunId === runId ? null : state.activeRunId
+        };
+    }),
+
+    resetAll: () => set({ activeRunId: null, runs: {} })
 }));

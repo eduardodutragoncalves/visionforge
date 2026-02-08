@@ -9,13 +9,17 @@ import { StatusPill } from '../../components/ui/StatusPill';
 
 export const LiveRun = () => {
     const { runId, projectId } = useParams();
-    const { status, currentEpoch, totalEpochs, metrics } = useTrainingStore();
+    const run = useTrainingStore(state => (runId ? state.runs[runId] : undefined));
 
     // Derived stats
+    const metrics = run?.metrics ?? [];
     const lastMetric = metrics[metrics.length - 1];
     const formatMetric = (value?: number) => (typeof value === 'number' ? value.toFixed(4) : '---');
     const loss = formatMetric(lastMetric?.loss);
     const acc = formatMetric(lastMetric?.accuracy);
+    const status = run?.status ?? 'idle';
+    const currentEpoch = run?.currentEpoch ?? 0;
+    const totalEpochs = run?.totalEpochs ?? 0;
 
     return (
         <div className="live-run animate-fade-in space-y-6">
@@ -60,14 +64,14 @@ export const LiveRun = () => {
                     <Card className="h-full flex flex-col">
                         <h3 className="mb-4">Loss & Accuracy</h3>
                         <div className="flex-1">
-                            <TrainingChart />
+                            {runId ? <TrainingChart runId={runId} /> : null}
                         </div>
                     </Card>
                 </div>
                 <div className="col-span-1">
                     <Card className="h-full flex flex-col">
                         <h3 className="mb-4">Logs</h3>
-                        <LogViewer />
+                        {runId ? <LogViewer runId={runId} /> : null}
                     </Card>
                 </div>
             </div>

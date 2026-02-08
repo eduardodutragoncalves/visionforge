@@ -9,24 +9,47 @@ from datetime import datetime
 from engine.core.events import manager
 from engine.io import paths, manifests
 from engine.orchestrator.post_processor import handle_training_completion
+from engine.services.gpu_stats import get_gpu_stats
 
 logger = logging.getLogger("VisionForge.Orchestrator")
 
 class Orchestrator:
     def __init__(self):
         self.queue = asyncio.Queue()
-        self.active_job: Optional[Dict] = None
+        self.active_jobs: Dict[str, Dict] = {}
         self.is_processing = False
         self.workspace_root = str(paths.get_workspace_root())
+        self.max_concurrent_jobs = self._resolve_max_concurrent_jobs()
+        self.semaphore = asyncio.Semaphore(self.max_concurrent_jobs)
+        self._dispatcher_task: Optional[asyncio.Task] = None
+
+    def _resolve_max_concurrent_jobs(self) -> int:
+        env_value = os.environ.get("VISIONFORGE_MAX_CONCURRENT_RUNS")
+        if env_value:
+            try:
+                return max(1, int(env_value))
+            except ValueError:
+                return 1
+        try:
+            gpu_count = len(get_gpu_stats())
+        except Exception:
+            gpu_count = 0
+        return max(1, gpu_count or 1)
 
     async def start(self):
         """Starts the worker loop"""
         logger.info("Orchestrator worker started.")
         self.is_processing = True
-        asyncio.create_task(self._worker())
+        self._dispatcher_task = asyncio.create_task(self._dispatcher())
 
     async def stop(self):
         self.is_processing = False
+        try:
+            self.queue.put_nowait(None)
+        except Exception:
+            pass
+        if self._dispatcher_task:
+            self._dispatcher_task.cancel()
 
     async def submit_job(self, project_id: str, run_id: str, config: dict):
         """Adds a job to the queue and updates status"""
@@ -52,18 +75,28 @@ class Orchestrator:
             "new_job": job
         })
 
-    async def _worker(self):
-        """Sequential worker to process jobs"""
+    async def _dispatcher(self):
+        """Dispatch jobs with bounded concurrency."""
         while self.is_processing:
             job = await self.queue.get()
-            self.active_job = job
+            if job is None:
+                self.queue.task_done()
+                break
+            asyncio.create_task(self._run_job_guarded(job))
+
+    async def _run_job_guarded(self, job: Dict):
+        run_id = job.get("run_id")
+        async with self.semaphore:
+            if run_id:
+                self.active_jobs[run_id] = job
             try:
                 await self._run_job(job)
             except Exception as e:
                 logger.error(f"Job failed: {e}")
                 await self._handle_job_failure(job, str(e))
             finally:
-                self.active_job = None
+                if run_id and run_id in self.active_jobs:
+                    self.active_jobs.pop(run_id, None)
                 self.queue.task_done()
 
     async def _run_job(self, job):
@@ -86,7 +119,11 @@ class Orchestrator:
         self._update_run_status(run_json_path, "running")
         
         # Broadcast start
-        await manager.broadcast("train/started", {"run_id": run_id, "project_id": project_id})
+        await manager.broadcast("train/started", {
+            "run_id": run_id,
+            "project_id": project_id,
+            "total_epochs": config.get("epochs", 10)
+        })
 
         # Runtime configuration
         runtime = config.get("runtime", "local")
@@ -193,7 +230,10 @@ class Orchestrator:
                             json_str = decoded_line[len("VF_EVENT:"):].strip()
                             event_data = json.loads(json_str)
                             event_type = event_data.get("type")
-                            payload = event_data.get("payload")
+                            payload = event_data.get("payload") or {}
+                            if isinstance(payload, dict):
+                                payload.setdefault("run_id", run_id)
+                                payload.setdefault("project_id", project_id)
 
                             # Persist metrics specifically
                             if event_type == "train/metrics":

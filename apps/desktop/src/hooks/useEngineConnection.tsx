@@ -28,8 +28,10 @@ export const useEngineConnection = () => {
                 try {
                     const msg = JSON.parse(event.data);
                     if (msg.event === 'train/metrics') {
-                        addMetric(msg.data);
-                        setStatus('training');
+                        const runId = msg.data?.run_id;
+                        if (!runId) return;
+                        addMetric(runId, msg.data);
+                        setStatus(runId, 'training');
                     } else if (msg.event === 'engine/gpu_stats') {
                         const gpus = (msg.data?.gpus || []).map((gpu: any) => ({
                             index: gpu.index ?? 0,
@@ -42,16 +44,23 @@ export const useEngineConnection = () => {
                         gpus.sort((a: any, b: any) => a.index - b.index);
                         setGpuStats(gpus, msg.data?.timestamp ?? Date.now() / 1000);
                     } else if (msg.event === 'train/logs') {
-                        addLog({
+                        const runId = msg.data?.run_id;
+                        if (!runId) return;
+                        addLog(runId, {
                             timestamp: new Date().toLocaleTimeString(),
                             level: msg.data.level || 'INFO',
                             message: msg.data.message
                         });
                     } else if (msg.event === 'train/started') {
-                        // Assuming 10 for now if not in payload, ideally payload has config
-                        startRun(msg.data.run_id, 10);
+                        startRun(msg.data.run_id, msg.data.total_epochs || 10, msg.data.project_id);
                     } else if (msg.event === 'train/completed') {
-                        setStatus('completed');
+                        if (msg.data?.run_id) {
+                            setStatus(msg.data.run_id, 'completed');
+                        }
+                    } else if (msg.event === 'train/failed') {
+                        if (msg.data?.run_id) {
+                            setStatus(msg.data.run_id, 'failed');
+                        }
                     } else if (msg.event === 'export/completed') {
                         window.dispatchEvent(new CustomEvent('vf-export-completed', { detail: msg.data }));
                     }

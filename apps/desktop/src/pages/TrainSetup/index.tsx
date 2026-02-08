@@ -12,10 +12,12 @@ export const TrainSetup = () => {
     const { projectId } = useParams();
     const navigate = useNavigate();
     const { gpu, gpus } = useEngineStore(state => ({ gpu: state.gpu, gpus: state.gpus }));
-    const { activeRunId, status } = useTrainingStore(state => ({
-        activeRunId: state.activeRunId,
-        status: state.status
-    }));
+    const activeRuns = useTrainingStore(state =>
+        Object.values(state.runs).filter((run) =>
+            run.projectId === projectId &&
+            (run.status === 'starting' || run.status === 'training')
+        )
+    );
 
     const [loading, setLoading] = useState(false);
     const [config, setConfig] = useState({
@@ -93,21 +95,26 @@ export const TrainSetup = () => {
                 <p className="text-secondary">Setup experiment hyperparameters for {projectId}</p>
             </header>
 
-            {activeRunId && (status === 'starting' || status === 'training') && (
+            {activeRuns.length > 0 && (
                 <Card className="border border-accent-primary/30 bg-graphite-900/60">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex flex-col gap-4">
                         <div>
-                            <div className="text-xs uppercase tracking-[0.4em] text-haze">Training in progress</div>
+                            <div className="text-xs uppercase tracking-[0.4em] text-haze">Trainings in progress</div>
                             <div className="text-secondary text-sm mt-2">
-                                Run <span className="text-bone font-mono">{activeRunId.slice(0, 8)}</span> is still running.
+                                Selecione um treino em andamento para acompanhar.
                             </div>
                         </div>
-                        <Button
-                            variant="secondary"
-                            onClick={() => navigate(`/projects/${projectId}/train/live/${activeRunId}`)}
-                        >
-                            Voltar para o treino
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                            {activeRuns.map((run) => (
+                                <Button
+                                    key={run.runId}
+                                    variant="secondary"
+                                    onClick={() => navigate(`/projects/${projectId}/train/live/${run.runId}`)}
+                                >
+                                    Voltar para {run.runId.slice(0, 8)}
+                                </Button>
+                            ))}
+                        </div>
                     </div>
                 </Card>
             )}

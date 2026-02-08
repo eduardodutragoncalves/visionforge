@@ -9,8 +9,8 @@ import {
 } from 'recharts';
 import { useTrainingStore } from '../../store/trainingStore';
 
-export const TrainingChart = () => {
-    const metrics = useTrainingStore(state => state.metrics);
+export const TrainingChart = ({ runId }: { runId: string }) => {
+    const metrics = useTrainingStore(state => state.runs[runId]?.metrics ?? []);
 
     if (metrics.length === 0) return <div className="h-64 flex items-center justify-center text-secondary">No metrics yet</div>;
 

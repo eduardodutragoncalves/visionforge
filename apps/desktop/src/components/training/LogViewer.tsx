@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react';
 import { useTrainingStore } from '../../store/trainingStore';
 import clsx from 'clsx';
 
-export const LogViewer = () => {
-    const logs = useTrainingStore(state => state.logs);
+export const LogViewer = ({ runId }: { runId: string }) => {
+    const logs = useTrainingStore(state => state.runs[runId]?.logs ?? []);
     const endRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
