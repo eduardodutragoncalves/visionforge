@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { Upload, Camera, Zap } from 'lucide-react';
 import { ENGINE_HTTP_URL } from '../../lib/engine';
