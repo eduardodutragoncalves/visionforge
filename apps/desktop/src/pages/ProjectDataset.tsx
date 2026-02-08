@@ -414,9 +414,28 @@ export const ProjectDataset = () => {
                 const data = await res.json();
                 setDataset(data);
                 const total = Array.isArray(data.images) ? data.images.length : 0;
-                const offset = Math.max(total - IMAGE_PAGE_SIZE, 0);
-                applyPagination(offset, total);
-                await loadImages(offset, total);
+                if (data.task === 'classification') {
+                    applyPagination(0, total);
+                    if (pendingRef.current.length === 0) {
+                        const pending = readPendingSaves(projectId);
+                        pendingRef.current = pending;
+                        setPendingCount(pending.length);
+                        if (pending.length > 0) {
+                            setSaveStatus('pending');
+                        }
+                    }
+                    const baseImages = applyPendingToImages(data.images ?? [], pendingRef.current);
+                    setImages(baseImages);
+                    if (pendingRef.current.length > 0) {
+                        void flushPending();
+                    } else {
+                        setSaveStatus('saved');
+                    }
+                } else {
+                    const offset = Math.max(total - IMAGE_PAGE_SIZE, 0);
+                    applyPagination(offset, total);
+                    await loadImages(offset, total);
+                }
             } else {
                 await loadImages(imageOffset, imageTotal);
             }
@@ -1007,7 +1026,7 @@ export const ProjectDataset = () => {
                         <span>Images: {imageTotal || images.length}</span>
                         <span>Classes: {dataset?.classes.length || 0}</span>
                     </div>
-                    {imageTotal > IMAGE_PAGE_SIZE && (
+                    {imageTotal > IMAGE_PAGE_SIZE && images.length < imageTotal && (
                         <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-secondary">
                             <span>
                                 Showing {Math.min(imageOffset + 1, imageTotal)}-
@@ -1336,7 +1355,7 @@ export const ProjectDataset = () => {
                                     } as React.CSSProperties
                                 }
                             >
-                                {visibleImages.map((image) => (
+                                {visibleImages.map((image, index) => (
                                     <div
                                         key={image.id}
                                         onClick={(event) => {
@@ -1357,11 +1376,14 @@ export const ProjectDataset = () => {
                                         role="button"
                                         tabIndex={0}
                                         className={clsx(
-                                            'image-card',
+                                            'image-card relative',
                                             imageAspect[image.id] ? `image-card-${imageAspect[image.id]}` : null,
                                             selectedIds.has(image.id) ? 'image-card-selected' : null
                                         )}
                                     >
+                                        <div className="absolute left-2 top-2 rounded-full border border-graphite-700/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-secondary">
+                                            {index + 1}
+                                        </div>
                                         <img
                                             src={getImageSrc(image)}
                                             alt={image.id}
