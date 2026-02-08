@@ -54,6 +54,12 @@ type PendingSave =
     | { type: 'labels'; imageId: string; labels: number[]; updatedAt: number }
     | { type: 'boxes'; imageId: string; boxes: BoundingBox[]; updatedAt: number };
 
+const isEditableTarget = (target: EventTarget | null) => {
+    if (!target || !(target instanceof HTMLElement)) return false;
+    const tag = target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+};
+
 const toFileUrl = (path: string) => {
     const normalized = path.replace(/\\/g, '/');
     if (normalized.startsWith('/')) {
@@ -136,27 +142,69 @@ export const ProjectDataset = () => {
         () => images.find((image) => image.id === previewImageId) || null,
         [images, previewImageId]
     );
-    const labeledImages = useMemo(
+    const pageLabeledImages = useMemo(
         () => images.filter((image) => image.labels.length > 0),
         [images]
     );
-    const unlabeledImages = useMemo(
+    const pageUnlabeledImages = useMemo(
         () => images.filter((image) => image.labels.length === 0),
         [images]
     );
     const filteredLabeledImages = useMemo(() => {
-        if (labeledClassFilter === null) return labeledImages;
-        return labeledImages.filter((image) => image.labels.includes(labeledClassFilter));
-    }, [labeledImages, labeledClassFilter]);
-    const labeledCounts = useMemo(() => {
+        if (labeledClassFilter === null) return pageLabeledImages;
+        return pageLabeledImages.filter((image) => image.labels.includes(labeledClassFilter));
+    }, [pageLabeledImages, labeledClassFilter]);
+    const visibleImages = classificationTab === 'labeled' ? filteredLabeledImages : pageUnlabeledImages;
+    const progressImages = useMemo(() => {
+        if (!dataset?.images || dataset.images.length === 0) return images;
+        if (dataset.images.length === images.length) return images;
+        if (images.length === 0) return dataset.images;
+        const override = new Map(images.map((image) => [image.id, image]));
+        return dataset.images.map((image) => override.get(image.id) ?? image);
+    }, [dataset?.images, images]);
+    const {
+        progressTotal,
+        progressLabeled,
+        progressRemaining,
+        progressPercent,
+        balanceTotal,
+        balanceBreakdown,
+        balanceById
+    } = useMemo(() => {
+        const total = progressImages.length;
+        let labeled = 0;
         const counts = new Map<number, number>();
         classes.forEach((cls) => counts.set(cls.id, 0));
-        labeledImages.forEach((image) => {
+        progressImages.forEach((image) => {
+            if (image.labels.length > 0) labeled += 1;
             image.labels.forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
         });
-        return counts;
-    }, [classes, labeledImages]);
-    const visibleImages = classificationTab === 'labeled' ? filteredLabeledImages : unlabeledImages;
+        const totalAssignments = Array.from(counts.values()).reduce((sum, value) => sum + value, 0);
+        const percent = total > 0 ? Math.min(100, Math.round((labeled / total) * 100)) : 0;
+        const maxCount = Math.max(0, ...Array.from(counts.values()));
+        const breakdown = classes.map((cls) => {
+            const count = counts.get(cls.id) || 0;
+            const portion = totalAssignments > 0 ? (count / totalAssignments) * 100 : 0;
+            const relative = maxCount > 0 ? (count / maxCount) * 100 : 0;
+            return {
+                id: cls.id,
+                name: cls.name,
+                color: cls.color || '#2fb8ff',
+                count,
+                portion,
+                relative
+            };
+        });
+        return {
+            progressTotal: total,
+            progressLabeled: labeled,
+            progressRemaining: Math.max(total - labeled, 0),
+            progressPercent: percent,
+            balanceTotal: totalAssignments,
+            balanceBreakdown: breakdown,
+            balanceById: counts
+        };
+    }, [progressImages, classes]);
 
     const handleThumbLoad = (imageId: string, event: React.SyntheticEvent<HTMLImageElement>) => {
         const target = event.currentTarget;
@@ -750,6 +798,29 @@ export const ProjectDataset = () => {
     }, [previewImageId]);
 
     useEffect(() => {
+        if (dataset?.task !== 'classification' || classes.length === 0) return;
+        const handleShortcut = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+            if (isEditableTarget(event.target)) return;
+            const digit = Number(event.key);
+            if (!Number.isInteger(digit) || digit < 1 || digit > 9) return;
+            const targetClass = classes[digit - 1];
+            if (!targetClass) return;
+            if (previewImageId) {
+                event.preventDefault();
+                void handleAssignClassSingle(previewImageId, targetClass.id);
+                return;
+            }
+            if (selectedIds.size > 0) {
+                event.preventDefault();
+                void handleAssignClass(targetClass.id);
+            }
+        };
+        window.addEventListener('keydown', handleShortcut);
+        return () => window.removeEventListener('keydown', handleShortcut);
+    }, [dataset?.task, classes, previewImageId, selectedIds, handleAssignClass, handleAssignClassSingle]);
+
+    useEffect(() => {
         setSelectedIds(new Set());
         if (classificationTab !== 'labeled') {
             setLabeledClassFilter(null);
@@ -956,14 +1027,22 @@ export const ProjectDataset = () => {
                             )}
 
                             <div className="flex flex-wrap gap-2">
-                                {classes.map((cls) => (
+                                {classes.map((cls, index) => (
                                     <Button
                                         key={cls.id}
                                         size="sm"
                                         variant="secondary"
                                         onClick={() => handleAssignClass(cls.id)}
+                                        title={index < 9 ? `Atalho ${index + 1}` : undefined}
                                     >
-                                        {cls.name}
+                                        <span className="flex items-center gap-2">
+                                            <span>{cls.name}</span>
+                                            {index < 9 && (
+                                                <span className="rounded-full border border-graphite-700/70 bg-graphite-900 px-2 py-0.5 text-[9px] uppercase tracking-[0.3em] text-secondary leading-none">
+                                                    {index + 1}
+                                                </span>
+                                            )}
+                                        </span>
                                     </Button>
                                 ))}
                                 <Button size="sm" variant="ghost" onClick={handleClearLabels}>
@@ -1021,7 +1100,7 @@ export const ProjectDataset = () => {
                                         )}
                                         onClick={() => setClassificationTab('unlabeled')}
                                     >
-                                        Unlabeled ({unlabeledImages.length})
+                                        Unlabeled ({progressRemaining})
                                     </button>
                                     <button
                                         type="button"
@@ -1031,7 +1110,7 @@ export const ProjectDataset = () => {
                                         )}
                                         onClick={() => setClassificationTab('labeled')}
                                     >
-                                        Labeled ({labeledImages.length})
+                                            Labeled ({progressLabeled})
                                     </button>
                                 </div>
                                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-secondary">
@@ -1050,6 +1129,60 @@ export const ProjectDataset = () => {
                                     </div>
                                 </div>
                             </div>
+                            <div className="grid gap-3 lg:grid-cols-2">
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.32em] text-secondary">
+                                        <span>Progress</span>
+                                        <span>
+                                            {progressLabeled}/{progressTotal} labeled · {progressRemaining} remaining
+                                        </span>
+                                    </div>
+                                    <div className="h-2 rounded-full bg-graphite-700/80 overflow-hidden">
+                                        <div
+                                            className="h-full bg-accent-primary transition-all duration-300"
+                                            style={{ width: `${progressPercent}%` }}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.32em] text-secondary">
+                                        <span>Class balance</span>
+                                        <span>{balanceTotal} labels</span>
+                                    </div>
+                                    {balanceBreakdown.length === 0 ? (
+                                        <div className="text-xs text-secondary">No labels yet.</div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {balanceBreakdown.map((item, index) => (
+                                                <div
+                                                    key={`balance-${item.id}`}
+                                                    className="flex items-center gap-3 text-[10px] uppercase tracking-[0.32em] text-secondary"
+                                                >
+                                                    <span
+                                                        className="h-2 w-2 rounded-full"
+                                                        style={{ backgroundColor: item.color || '#2fb8ff' }}
+                                                    />
+                                                    <span className="min-w-[72px] max-w-[140px] truncate">
+                                                        {index < 9 ? `${index + 1}. ` : ''}{item.name}
+                                                    </span>
+                                                    <div className="flex-1 h-2 rounded-full bg-graphite-700/80 overflow-hidden">
+                                                        <div
+                                                            className="h-full transition-all duration-300"
+                                                            style={{
+                                                                width: `${item.relative}%`,
+                                                                backgroundColor: item.color || '#2fb8ff'
+                                                            }}
+                                                            title={`${item.name}: ${item.count}`}
+                                                        />
+                                                    </div>
+                                                    <span className="text-bone tabular-nums">{item.count}</span>
+                                                    <span className="tabular-nums">{Math.round(item.portion)}%</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                             {classificationTab === 'labeled' && (
                                 <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.3em] text-secondary">
                                     <button
@@ -1060,7 +1193,7 @@ export const ProjectDataset = () => {
                                         )}
                                         onClick={() => setLabeledClassFilter(null)}
                                     >
-                                        All ({labeledImages.length})
+                                        All ({progressLabeled})
                                     </button>
                                     {classes.map((cls) => (
                                         <button
@@ -1072,7 +1205,7 @@ export const ProjectDataset = () => {
                                             )}
                                             onClick={() => setLabeledClassFilter(cls.id)}
                                         >
-                                            {cls.name} ({labeledCounts.get(cls.id) || 0})
+                                            {cls.name} ({balanceById.get(cls.id) || 0})
                                         </button>
                                     ))}
                                 </div>
@@ -1184,7 +1317,7 @@ export const ProjectDataset = () => {
                                     </div>
                                 ) : null}
                                 <div className="modal-labels">
-                                    {classes.map((cls) => (
+                                    {classes.map((cls, index) => (
                                         <Button
                                             key={cls.id}
                                             size="sm"
@@ -1193,8 +1326,16 @@ export const ProjectDataset = () => {
                                             className={clsx(
                                                 previewImage.labels.includes(cls.id) && 'border-accent-primary text-white'
                                             )}
+                                            title={index < 9 ? `Atalho ${index + 1}` : undefined}
                                         >
-                                            {cls.name}
+                                            <span className="flex items-center gap-2">
+                                                <span>{cls.name}</span>
+                                                {index < 9 && (
+                                                    <span className="rounded-full border border-graphite-700/70 bg-graphite-900 px-2 py-0.5 text-[9px] uppercase tracking-[0.3em] text-secondary leading-none">
+                                                        {index + 1}
+                                                    </span>
+                                                )}
+                                            </span>
                                         </Button>
                                     ))}
                                     <Button

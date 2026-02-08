@@ -4,5 +4,5 @@ websockets>=12.0
 python-multipart
 jsonschema>=4.19.0
 Pillow>=10.0.0
-ultralytics>=8.0.0
+ultralytics>=8.4.12
 opencv-python-headless>=4.9.0

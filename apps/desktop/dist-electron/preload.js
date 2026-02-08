@@ -17,5 +17,11 @@ electron.contextBridge.exposeInMainWorld("ipcRenderer", {
     const [channel, ...omit] = args;
     return electron.ipcRenderer.invoke(channel, ...omit);
   },
-  openDirectory: () => electron.ipcRenderer.invoke("dialog:openDirectory")
+  openDirectory: () => electron.ipcRenderer.invoke("dialog:openDirectory"),
+  openFiles: () => electron.ipcRenderer.invoke("dialog:openFiles"),
+  openVideo: () => electron.ipcRenderer.invoke("dialog:openVideo"),
+  minimize: () => electron.ipcRenderer.invoke("window:minimize"),
+  toggleMaximize: () => electron.ipcRenderer.invoke("window:toggle-maximize"),
+  close: () => electron.ipcRenderer.invoke("window:close"),
+  isMaximized: () => electron.ipcRenderer.invoke("window:is-maximized")
 });

@@ -2,6 +2,9 @@
 const electron = require("electron");
 const path = require("node:path");
 const node_os = require("node:os");
+const http = require("node:http");
+const fs = require("node:fs");
+const node_child_process = require("node:child_process");
 if (node_os.release().startsWith("6.1")) {
   electron.app.disableHardwareAcceleration();
 }
@@ -15,10 +18,104 @@ process.env.DIST_ELECTRON = DIST_ELECTRON;
 process.env.DIST = DIST;
 process.env.PUBLIC = PUBLIC;
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
+const DEFAULT_DEV_SERVER_URL = "http://127.0.0.1:5173/";
+const isDev = !electron.app.isPackaged;
 let win = null;
+let engineProcess = null;
+let engineOwned = false;
+const ENGINE_HEALTH_URL = process.env.VISIONFORGE_ENGINE_URL || "http://127.0.0.1:8000/health";
+const ENGINE_PYTHON = process.env.VISIONFORGE_PYTHON || "python";
+const resolveEngineCwd = () => {
+  if (process.env.VISIONFORGE_ENGINE_CWD) {
+    return process.env.VISIONFORGE_ENGINE_CWD;
+  }
+  const repoRootCandidate = path.resolve(__dirname, "../../..");
+  const engineEntry = path.join(repoRootCandidate, "engine", "main.py");
+  if (fs.existsSync(engineEntry)) {
+    return repoRootCandidate;
+  }
+  return process.cwd();
+};
+const ENGINE_CWD = resolveEngineCwd();
+const isEngineRunning = () => new Promise((resolve) => {
+  const req = http.get(ENGINE_HEALTH_URL, (res) => {
+    resolve(res.statusCode === 200);
+    res.resume();
+  });
+  req.on("error", () => resolve(false));
+  req.setTimeout(500, () => {
+    req.destroy();
+    resolve(false);
+  });
+});
+const startEngine = async () => {
+  const running = await isEngineRunning();
+  if (running) {
+    engineOwned = false;
+    return;
+  }
+  const args = ["-m", "uvicorn", "engine.main:app", "--port", "8000"];
+  if (process.env.VITE_DEV_SERVER_URL) {
+    args.push("--reload");
+  }
+  engineProcess = node_child_process.spawn(ENGINE_PYTHON, args, {
+    cwd: ENGINE_CWD,
+    env: process.env,
+    stdio: "pipe",
+    detached: process.platform !== "win32"
+  });
+  engineOwned = true;
+  engineProcess.stdout.on("data", (data) => {
+    console.log(`[engine] ${data.toString().trim()}`);
+  });
+  engineProcess.stderr.on("data", (data) => {
+    console.error(`[engine] ${data.toString().trim()}`);
+  });
+  engineProcess.on("exit", (code) => {
+    console.log(`[engine] exited with code ${code ?? "unknown"}`);
+    engineProcess = null;
+  });
+};
+const stopEngine = () => {
+  if (!engineProcess || !engineOwned) return;
+  const pid = engineProcess.pid;
+  if (!pid) return;
+  if (process.platform === "win32") {
+    node_child_process.spawn("taskkill", ["/pid", String(pid), "/t", "/f"]);
+  } else {
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch (err) {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+      }
+    }
+  }
+};
 async function handleOpenDirectory() {
   const { canceled, filePaths } = await electron.dialog.showOpenDialog({
     properties: ["openDirectory", "createDirectory"]
+  });
+  if (canceled) {
+    return null;
+  }
+  return filePaths[0];
+}
+async function handleOpenFiles() {
+  const { canceled, filePaths } = await electron.dialog.showOpenDialog({
+    properties: ["openFile", "multiSelections"],
+    filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "bmp", "webp"] }]
+  });
+  if (canceled) {
+    return [];
+  }
+  return filePaths;
+}
+async function handleOpenVideo() {
+  const { canceled, filePaths } = await electron.dialog.showOpenDialog({
+    properties: ["openFile"],
+    filters: [{ name: "Videos", extensions: ["mp4", "mov", "avi", "mkv"] }]
   });
   if (canceled) {
     return null;
@@ -30,13 +127,10 @@ function createWindow() {
     icon: path.join(PUBLIC, "electron-vite.svg"),
     width: 1200,
     height: 800,
+    frame: false,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js")
-    },
-    titleBarStyle: "hidden",
-    titleBarOverlay: {
-      color: "rgba(0,0,0,0)",
-      symbolColor: "#ffffff"
     },
     vibrancy: "fullscreen-ui",
     backgroundMaterial: "acrylic",
@@ -52,15 +146,56 @@ function createWindow() {
   win.webContents.on("did-finish-load", () => {
     win?.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
   });
-  if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL);
+  win.webContents.on("did-fail-load", (_event, code, desc, url) => {
+    console.error(`[renderer] failed to load (${code}): ${desc} -> ${url}`);
+  });
+  win.webContents.on("render-process-gone", (_event, details) => {
+    console.error(`[renderer] process gone: ${details.reason}`);
+  });
+  win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    const levelName = ["log", "warn", "error"][level] ?? "log";
+    console.log(`[renderer:${levelName}] ${message} (${sourceId}:${line})`);
+  });
+  win.once("ready-to-show", () => {
+    win?.show();
+    if (process.env.VITE_OPEN_DEVTOOLS === "1") {
+      win?.webContents.openDevTools({ mode: "detach" });
+    }
+  });
+  const notifyMaximize = () => {
+    win?.webContents.send("window:maximize-changed", win.isMaximized());
+  };
+  win.on("maximize", notifyMaximize);
+  win.on("unmaximize", notifyMaximize);
+  const devServerUrl = VITE_DEV_SERVER_URL || (isDev ? DEFAULT_DEV_SERVER_URL : "");
+  if (devServerUrl) {
+    win.loadURL(devServerUrl).catch((err) => {
+      console.error("[renderer] failed to load dev server", err);
+    });
   } else {
-    win.loadFile(path.join(DIST, "index.html"));
+    win.loadFile(path.join(DIST, "index.html")).catch((err) => {
+      console.error("[renderer] failed to load index.html", err);
+    });
   }
 }
 electron.app.whenReady().then(() => {
   electron.ipcMain.handle("dialog:openDirectory", handleOpenDirectory);
+  electron.ipcMain.handle("dialog:openFiles", handleOpenFiles);
+  electron.ipcMain.handle("dialog:openVideo", handleOpenVideo);
+  electron.ipcMain.handle("window:minimize", () => win?.minimize());
+  electron.ipcMain.handle("window:toggle-maximize", () => {
+    if (!win) return false;
+    if (win.isMaximized()) {
+      win.unmaximize();
+      return false;
+    }
+    win.maximize();
+    return true;
+  });
+  electron.ipcMain.handle("window:close", () => win?.close());
+  electron.ipcMain.handle("window:is-maximized", () => win?.isMaximized() ?? false);
   createWindow();
+  startEngine();
   electron.app.on("activate", () => {
     if (electron.BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -69,6 +204,10 @@ electron.app.whenReady().then(() => {
 });
 electron.app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
+    stopEngine();
     electron.app.quit();
   }
+});
+electron.app.on("before-quit", () => {
+  stopEngine();
 });
