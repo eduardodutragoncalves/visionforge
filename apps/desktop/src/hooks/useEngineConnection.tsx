@@ -52,7 +52,12 @@ export const useEngineConnection = () => {
                             message: msg.data.message
                         });
                     } else if (msg.event === 'train/started') {
-                        startRun(msg.data.run_id, msg.data.total_epochs || 10, msg.data.project_id);
+                        startRun(
+                            msg.data.run_id,
+                            msg.data.total_epochs || 10,
+                            msg.data.project_id,
+                            msg.data.config
+                        );
                     } else if (msg.event === 'train/completed') {
                         if (msg.data?.run_id) {
                             setStatus(msg.data.run_id, 'completed');

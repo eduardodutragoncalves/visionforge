@@ -122,7 +122,8 @@ class Orchestrator:
         await manager.broadcast("train/started", {
             "run_id": run_id,
             "project_id": project_id,
-            "total_epochs": config.get("epochs", 10)
+            "total_epochs": config.get("epochs", 10),
+            "config": config
         })
 
         # Runtime configuration

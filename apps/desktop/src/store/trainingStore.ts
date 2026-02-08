@@ -18,7 +18,7 @@ interface TrainingState {
     runs: Record<string, RunState>;
     activeRunId: string | null;
 
-    startRun: (runId: string, totalEpochs: number, projectId?: string) => void;
+    startRun: (runId: string, totalEpochs: number, projectId?: string, config?: Record<string, any>) => void;
     addMetric: (runId: string, metric: MetricPoint) => void;
     addLog: (runId: string, log: LogEntry) => void;
     setStatus: (runId: string, status: RunState['status']) => void;
@@ -36,9 +36,10 @@ interface RunState {
     metrics: MetricPoint[];
     logs: LogEntry[];
     startedAt?: number;
+    config?: Record<string, any>;
 }
 
-const createRunState = (runId: string, totalEpochs: number, projectId?: string): RunState => ({
+const createRunState = (runId: string, totalEpochs: number, projectId?: string, config?: Record<string, any>): RunState => ({
     runId,
     projectId,
     status: 'starting',
@@ -46,20 +47,33 @@ const createRunState = (runId: string, totalEpochs: number, projectId?: string):
     metrics: [],
     logs: [],
     currentEpoch: 0,
-    startedAt: Date.now()
+    startedAt: Date.now(),
+    config
 });
 
 export const useTrainingStore = create<TrainingState>((set) => ({
     runs: {},
     activeRunId: null,
 
-    startRun: (runId, totalEpochs, projectId) => set((state) => ({
-        activeRunId: runId,
-        runs: {
-            ...state.runs,
-            [runId]: createRunState(runId, totalEpochs, projectId)
-        }
-    })),
+    startRun: (runId, totalEpochs, projectId, config) => set((state) => {
+        const existing = state.runs[runId];
+        const next = existing
+            ? {
+                ...existing,
+                status: existing.status === 'idle' ? 'starting' : existing.status,
+                totalEpochs: totalEpochs || existing.totalEpochs,
+                projectId: projectId ?? existing.projectId,
+                config: config ?? existing.config
+            }
+            : createRunState(runId, totalEpochs, projectId, config);
+        return {
+            activeRunId: runId,
+            runs: {
+                ...state.runs,
+                [runId]: next
+            }
+        };
+    }),
 
     addMetric: (runId, metric) => set((state) => {
         const run = state.runs[runId] ?? createRunState(runId, metric.total_epochs || 0);
