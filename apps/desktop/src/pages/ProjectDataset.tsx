@@ -53,12 +53,16 @@ type SaveStatus = 'idle' | 'saving' | 'pending' | 'saved';
 type PendingSave =
     | { type: 'labels'; imageId: string; labels: number[]; updatedAt: number }
     | { type: 'boxes'; imageId: string; boxes: BoundingBox[]; updatedAt: number };
+type LabelChange = { imageId: string; prevLabels: number[]; nextLabels: number[] };
 
 const isEditableTarget = (target: EventTarget | null) => {
     if (!target || !(target instanceof HTMLElement)) return false;
     const tag = target.tagName;
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 };
+
+const labelsEqual = (a: number[], b: number[]) =>
+    a.length === b.length && a.every((value, index) => value === b[index]);
 
 const toFileUrl = (path: string) => {
     const normalized = path.replace(/\\/g, '/');
@@ -113,6 +117,7 @@ export const ProjectDataset = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const pendingRef = useRef<PendingSave[]>([]);
     const flushRef = useRef(false);
+    const undoRef = useRef<LabelChange[][]>([]);
     const classes = dataset?.classes ?? [];
 
     const classMap = useMemo(() => new Map(classes.map((cls) => [cls.id, cls.name])), [classes]);
@@ -338,6 +343,37 @@ export const ProjectDataset = () => {
 
     const enqueuePending = (item: PendingSave) => {
         enqueuePendingBatch([item]);
+    };
+
+    const pushUndo = (changes: LabelChange[]) => {
+        if (changes.length === 0) return;
+        const next = undoRef.current.slice();
+        next.push(changes);
+        if (next.length > 5) {
+            next.shift();
+        }
+        undoRef.current = next;
+    };
+
+    const applyUndo = (changes: LabelChange[]) => {
+        if (!projectId || changes.length === 0) return;
+        const changeMap = new Map(changes.map((change) => [change.imageId, change]));
+        setImages((prev) =>
+            prev.map((image) => {
+                const change = changeMap.get(image.id);
+                if (!change) return image;
+                return { ...image, labels: change.prevLabels };
+            })
+        );
+        const updatedAt = Date.now();
+        enqueuePendingBatch(
+            changes.map((change) => ({
+                type: 'labels',
+                imageId: change.imageId,
+                labels: change.prevLabels,
+                updatedAt
+            }))
+        );
     };
 
     const loadImages = async (offset: number, total?: number) => {
@@ -605,14 +641,33 @@ export const ProjectDataset = () => {
     const handleAssignClass = async (classId: number) => {
         if (!projectId || selectedIds.size === 0) return;
         const ids = Array.from(selectedIds);
+        const prevById = new Map(images.map((image) => [image.id, image.labels]));
+        const changes = ids
+            .map((id) => {
+                const prevLabels = prevById.get(id) ?? [];
+                const nextLabels = [classId];
+                return { imageId: id, prevLabels, nextLabels };
+            })
+            .filter((change) => !labelsEqual(change.prevLabels, change.nextLabels));
+        if (changes.length === 0) {
+            setSelectedIds(new Set());
+            return;
+        }
+        pushUndo(changes);
+        const changeIds = new Set(changes.map((change) => change.imageId));
         setImages((prev) =>
             prev.map((image) =>
-                ids.includes(image.id) ? { ...image, labels: [classId] } : image
+                changeIds.has(image.id) ? { ...image, labels: [classId] } : image
             )
         );
         const updatedAt = Date.now();
         enqueuePendingBatch(
-            ids.map((id) => ({ type: 'labels', imageId: id, labels: [classId], updatedAt }))
+            changes.map((change) => ({
+                type: 'labels',
+                imageId: change.imageId,
+                labels: change.nextLabels,
+                updatedAt
+            }))
         );
         setSelectedIds(new Set());
     };
@@ -620,14 +675,33 @@ export const ProjectDataset = () => {
     const handleClearLabels = async () => {
         if (!projectId || selectedIds.size === 0) return;
         const ids = Array.from(selectedIds);
+        const prevById = new Map(images.map((image) => [image.id, image.labels]));
+        const changes = ids
+            .map((id) => {
+                const prevLabels = prevById.get(id) ?? [];
+                const nextLabels: number[] = [];
+                return { imageId: id, prevLabels, nextLabels };
+            })
+            .filter((change) => !labelsEqual(change.prevLabels, change.nextLabels));
+        if (changes.length === 0) {
+            setSelectedIds(new Set());
+            return;
+        }
+        pushUndo(changes);
+        const changeIds = new Set(changes.map((change) => change.imageId));
         setImages((prev) =>
             prev.map((image) =>
-                ids.includes(image.id) ? { ...image, labels: [] } : image
+                changeIds.has(image.id) ? { ...image, labels: [] } : image
             )
         );
         const updatedAt = Date.now();
         enqueuePendingBatch(
-            ids.map((id) => ({ type: 'labels', imageId: id, labels: [], updatedAt }))
+            changes.map((change) => ({
+                type: 'labels',
+                imageId: change.imageId,
+                labels: change.nextLabels,
+                updatedAt
+            }))
         );
         setSelectedIds(new Set());
     };
@@ -665,6 +739,11 @@ export const ProjectDataset = () => {
 
     const handleAssignClassSingle = async (imageId: string, classId: number) => {
         if (!projectId) return;
+        const current = images.find((image) => image.id === imageId);
+        const prevLabels = current?.labels ?? [];
+        const nextLabels = [classId];
+        if (labelsEqual(prevLabels, nextLabels)) return;
+        pushUndo([{ imageId, prevLabels, nextLabels }]);
         setImages((prev) =>
             prev.map((image) =>
                 image.id === imageId ? { ...image, labels: [classId] } : image
@@ -675,6 +754,11 @@ export const ProjectDataset = () => {
 
     const handleClearLabelsSingle = async (imageId: string) => {
         if (!projectId) return;
+        const current = images.find((image) => image.id === imageId);
+        const prevLabels = current?.labels ?? [];
+        const nextLabels: number[] = [];
+        if (labelsEqual(prevLabels, nextLabels)) return;
+        pushUndo([{ imageId, prevLabels, nextLabels }]);
         setImages((prev) =>
             prev.map((image) => (image.id === imageId ? { ...image, labels: [] } : image))
         );
@@ -819,6 +903,24 @@ export const ProjectDataset = () => {
         window.addEventListener('keydown', handleShortcut);
         return () => window.removeEventListener('keydown', handleShortcut);
     }, [dataset?.task, classes, previewImageId, selectedIds, handleAssignClass, handleAssignClassSingle]);
+
+    useEffect(() => {
+        if (dataset?.task !== 'classification') return;
+        const handleUndo = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || event.altKey || event.shiftKey) return;
+            if (!event.ctrlKey && !event.metaKey) return;
+            if (event.key.toLowerCase() !== 'z') return;
+            if (isEditableTarget(event.target)) return;
+            const stack = undoRef.current.slice();
+            const last = stack.pop();
+            if (!last) return;
+            event.preventDefault();
+            undoRef.current = stack;
+            applyUndo(last);
+        };
+        window.addEventListener('keydown', handleUndo);
+        return () => window.removeEventListener('keydown', handleUndo);
+    }, [dataset?.task, applyUndo]);
 
     useEffect(() => {
         if (dataset?.task !== 'classification') return;
@@ -1268,7 +1370,7 @@ export const ProjectDataset = () => {
                                         />
                                         <div className="mt-2 text-xs text-secondary">
                                             {image.labels.length > 0
-                                                ? `Label: ${image.labels.map((id) => classMap.get(id) || id).join(', ')}`
+                                                ? image.labels.map((id) => classMap.get(id) || id).join(', ')
                                                 : 'Unlabeled'}
                                         </div>
                                         {PRECLASSIFY_ENABLED && preclassifyResults[image.id]?.length ? (
