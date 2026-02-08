@@ -5,6 +5,11 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    height: 100%;
+    overflow: hidden;
+  }
+
   :root {
     color-scheme: dark;
   }
@@ -16,10 +21,11 @@
   body {
     @apply bg-graphite-950 text-bone font-display antialiased overflow-hidden;
     margin: 0;
+    height: 100%;
   }
 
   #root {
-    @apply min-h-screen w-screen flex;
+    @apply h-screen w-screen flex;
   }
 
   body::before {
@@ -148,7 +154,7 @@
   }
 
   .content-wrapper {
-    @apply relative flex flex-1 flex-col overflow-hidden;
+    @apply relative flex flex-1 flex-col overflow-hidden min-h-0;
   }
 
   .topbar {
@@ -211,7 +217,7 @@
   }
 
   .page-content {
-    @apply relative flex-1 overflow-y-auto px-8 pb-10 pt-6;
+    @apply relative flex-1 overflow-y-auto px-8 pb-10 pt-6 min-h-0;
   }
 
   .page-content::after {
