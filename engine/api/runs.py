@@ -80,6 +80,7 @@ async def create_run(project_id: str, request: CreateRunRequest):
 
 @router.get("/projects/{project_id}/runs")
 async def list_runs(project_id: str) -> List[Dict[str, Any]]:
+    orchestrator.reconcile_stale_runs(project_id=project_id)
     runs_dir = paths.get_runs_dir(project_id)
     if not runs_dir.exists():
         return []

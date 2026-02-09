@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import sys
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 from datetime import datetime
 
 from engine.core.events import manager
@@ -18,6 +18,7 @@ class Orchestrator:
     def __init__(self):
         self.queue = asyncio.Queue()
         self.active_jobs: Dict[str, Dict] = {}
+        self.queued_run_ids: Set[str] = set()
         self.is_processing = False
         self.workspace_root = str(paths.get_workspace_root())
         self.max_concurrent_jobs = self._resolve_max_concurrent_jobs()
@@ -40,6 +41,7 @@ class Orchestrator:
     async def start(self):
         """Starts the worker loop"""
         logger.info("Orchestrator worker started.")
+        self.reconcile_stale_runs()
         self.is_processing = True
         self._dispatcher_task = asyncio.create_task(self._dispatcher())
 
@@ -67,6 +69,7 @@ class Orchestrator:
             "config": config,
             "queued_at": datetime.now().isoformat()
         }
+        self.queued_run_ids.add(run_id)
         await self.queue.put(job)
         logger.info(f"Job queued: {run_id} for project {project_id}")
         
@@ -89,6 +92,7 @@ class Orchestrator:
         run_id = job.get("run_id")
         async with self.semaphore:
             if run_id:
+                self.queued_run_ids.discard(run_id)
                 self.active_jobs[run_id] = job
             try:
                 await self._run_job(job)
@@ -98,6 +102,8 @@ class Orchestrator:
             finally:
                 if run_id and run_id in self.active_jobs:
                     self.active_jobs.pop(run_id, None)
+                if run_id:
+                    self.queued_run_ids.discard(run_id)
                 self.queue.task_done()
 
     async def _run_job(self, job):
@@ -407,6 +413,63 @@ class Orchestrator:
             })
         except Exception:
             pass
+
+    def reconcile_stale_runs(self, project_id: Optional[str] = None) -> int:
+        """
+        Marks orphan runs as failed.
+        A run is orphan when persisted as queued/running but not tracked
+        in memory as queued/active by the current orchestrator instance.
+        """
+        now = datetime.now().isoformat()
+        known_live = set(self.active_jobs.keys()) | set(self.queued_run_ids)
+        projects_root = os.path.join(self.workspace_root, "projects")
+        if not os.path.isdir(projects_root):
+            return 0
+
+        project_ids = [project_id] if project_id else [
+            name for name in os.listdir(projects_root)
+            if os.path.isdir(os.path.join(projects_root, name))
+        ]
+
+        repaired = 0
+        for pid in project_ids:
+            runs_root = os.path.join(projects_root, pid, "runs")
+            if not os.path.isdir(runs_root):
+                continue
+            for run_dir_name in os.listdir(runs_root):
+                run_json_path = os.path.join(runs_root, run_dir_name, "run.json")
+                if not os.path.isfile(run_json_path):
+                    continue
+                try:
+                    with open(run_json_path, "r") as f:
+                        data = json.load(f)
+                except Exception:
+                    continue
+
+                status = str(data.get("status", "")).lower()
+                if status not in {"queued", "running"}:
+                    continue
+
+                run_id = data.get("id") or run_dir_name
+                if run_id in known_live:
+                    continue
+
+                previous = status
+                data["status"] = "failed"
+                data["failed_at"] = now
+                if not data.get("error"):
+                    data["error"] = f"Recovered stale run after engine restart ({previous})."
+                data["updated_at"] = now
+                try:
+                    with open(run_json_path, "w") as f:
+                        json.dump(data, f, indent=2)
+                    repaired += 1
+                except Exception:
+                    continue
+
+        if repaired > 0:
+            logger.warning(f"Reconciled {repaired} stale runs.")
+        return repaired
 
 # Singleton
 orchestrator = Orchestrator()
