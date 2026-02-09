@@ -24,7 +24,20 @@ export const Sidebar = () => {
     return (
         <aside className="sidebar glass">
             <div className="logo-container">
-                <div className="logo-icon">VF</div>
+                <div className="logo-icon">
+                    <img
+                        src="/branding/ai-brain-icon.png"
+                        alt="VisionForge"
+                        className="logo-image"
+                        onError={(event) => {
+                            const el = event.currentTarget as HTMLImageElement;
+                            el.style.display = 'none';
+                            const fallback = el.nextElementSibling as HTMLElement | null;
+                            if (fallback) fallback.style.display = 'flex';
+                        }}
+                    />
+                    <span className="logo-fallback" style={{ display: 'none' }}>VF</span>
+                </div>
             </div>
 
             <nav className="nav-menu">

@@ -8,6 +8,9 @@ export const SplashScreen = () => {
     return (
         <div className="splash-inline">
             <div className="splash-inline-card">
+                <div className="splash-brand">
+                    <img src="/branding/ai-brain-icon.png" alt="VisionForge" className="splash-brand-image" />
+                </div>
                 <div className="splash-inline-title">Connecting to engine</div>
                 <div className="splash-loader">
                     <span className="loader" />

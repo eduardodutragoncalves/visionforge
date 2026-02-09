@@ -108,11 +108,23 @@
   }
 
   .logo-icon {
-    @apply flex h-12 w-12 items-center justify-center text-white font-semibold text-lg;
+    @apply relative flex h-12 w-12 items-center justify-center text-white font-semibold text-lg overflow-hidden;
     border-radius: 16px;
     letter-spacing: 0.15em;
     background: linear-gradient(135deg, rgba(47, 184, 255, 0.85), rgba(95, 211, 255, 0.6));
     box-shadow: 0 10px 20px rgba(14, 32, 46, 0.6);
+  }
+
+  .logo-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 8px 14px rgba(10, 35, 52, 0.55));
+  }
+
+  .logo-fallback {
+    @apply absolute inset-0 hidden items-center justify-center font-semibold text-lg;
+    letter-spacing: 0.15em;
   }
 
   .nav-menu {
@@ -459,6 +471,17 @@
 
   .splash-inline-title {
     @apply text-[11px] uppercase tracking-[0.35em] text-haze;
+  }
+
+  .splash-brand {
+    @apply mb-2 flex justify-center;
+  }
+
+  .splash-brand-image {
+    width: 46px;
+    height: 46px;
+    object-fit: contain;
+    filter: drop-shadow(0 10px 16px rgba(8, 20, 30, 0.55));
   }
 
   .splash-loader {
