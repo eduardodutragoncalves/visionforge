@@ -264,13 +264,13 @@ export const TrainSetup = () => {
                 </Card>
             )}
 
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
 
                 {/* Left Col: Config */}
-                <div className="col-span-2 space-y-6">
+                <div className="space-y-6 xl:col-span-8">
                     <Card>
                         <h3 className="mb-4 text-xl">Model Parameters</h3>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                             <Select
                                 label="Framework"
                                 options={[
@@ -324,13 +324,13 @@ export const TrainSetup = () => {
                                         value={splitTestPct}
                                         onChange={e => setSplitTestPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
                                     />
-                                    <div className="col-span-2 text-xs text-secondary">
+                                    <div className="md:col-span-2 xl:col-span-3 text-xs text-secondary">
                                         Total: {splitTotal}% {splitValid ? '' : '· Ajuste para 100%.'}
                                     </div>
                                 </>
                             )}
                             {datasetTask && datasetTask !== 'classification' && (
-                                <div className="col-span-2 text-xs text-secondary">
+                                <div className="md:col-span-2 xl:col-span-3 text-xs text-secondary">
                                     Split de treino/validação segue a estrutura do dataset para {datasetTask}.
                                 </div>
                             )}
@@ -339,7 +339,7 @@ export const TrainSetup = () => {
 
                     <Card>
                         <h3 className="mb-4 text-xl">Compute Settings</h3>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                             <Input
                                 label="Batch Size"
                                 type="number"
@@ -359,7 +359,7 @@ export const TrainSetup = () => {
 
                             {target === 'local' && (
                                 <>
-                                    <div className="col-span-2 pt-4 border-t border-white/10 mt-2">
+                                    <div className="md:col-span-2 xl:col-span-3 pt-4 border-t border-white/10 mt-2">
                                         <h4 className="text-sm font-bold mb-2">Local Runtime Environment</h4>
                                     </div>
                                     <Select
@@ -418,7 +418,7 @@ export const TrainSetup = () => {
                 </div>
 
                 {/* Right Col: Summary & Actions */}
-                <div className="col-span-1 space-y-6">
+                <div className="space-y-6 xl:col-span-4">
                     <Card className="sticky top-6">
                         <h3 className="mb-4 text-lg font-bold">Hardware Status</h3>
                         {target === 'local' ? (
@@ -473,11 +473,11 @@ export const TrainSetup = () => {
                 ) : runHistory.length === 0 ? (
                     <div className="mt-4 text-secondary text-sm">No runs yet.</div>
                 ) : (
-                    <div className="mt-4 space-y-4">
+                    <div className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
                         {runHistory.map((run) => {
                             const indicators = buildIndicators(run);
                             return (
-                                <div key={run.id} className="border border-graphite-700/70 bg-graphite-900/60 rounded-lg p-4 space-y-3">
+                                <div key={run.id} className="border border-graphite-700/70 bg-graphite-900/60 rounded-lg p-4 space-y-3 h-full flex flex-col">
                                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                         <div>
                                             <div className="text-xs uppercase tracking-[0.4em] text-haze">Run</div>
