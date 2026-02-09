@@ -274,8 +274,7 @@ export const TrainSetup = () => {
                             <Select
                                 label="Framework"
                                 options={[
-                                    { value: 'ultralytics', label: 'YOLOv8 (Ultralytics)' },
-                                    { value: 'tensorflow', label: 'TensorFlow (Mobilenet)' }
+                                    { value: 'ultralytics', label: 'Ultralytics (YOLO)' }
                                 ]}
                                 value={config.framework}
                                 onChange={e => setConfig({ ...config, framework: e.target.value })}
