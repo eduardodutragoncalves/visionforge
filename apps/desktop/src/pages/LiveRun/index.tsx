@@ -60,7 +60,7 @@ export const LiveRun = () => {
     ].filter((item) => item.value !== undefined && item.value !== null && item.value !== '');
 
     return (
-        <div className="live-run animate-fade-in h-full min-h-0 flex flex-col gap-4">
+        <div className="live-run animate-fade-in h-full min-h-0 flex flex-col gap-3">
             {visibleRuns.length > 1 && (
                 <div className="flex flex-wrap gap-2 shrink-0">
                     {visibleRuns.map((item) => (
@@ -97,13 +97,15 @@ export const LiveRun = () => {
                 </div>
             </header>
             {configItems.length > 0 && (
-                <Card className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.3em] text-secondary shrink-0">
+                <Card className="shrink-0">
+                    <div className="flex gap-2 overflow-x-auto pb-1 text-xs uppercase tracking-[0.3em] text-secondary">
                     {configItems.map((item) => (
-                        <div key={`config-${item.label}`} className="border border-graphite-700/70 bg-graphite-900 px-3 py-2 rounded">
+                        <div key={`config-${item.label}`} className="border border-graphite-700/70 bg-graphite-900 px-3 py-2 rounded shrink-0">
                             <span className="text-haze">{item.label}:</span>{' '}
                             <span className="text-bone">{String(item.value)}</span>
                         </div>
                     ))}
+                    </div>
                 </Card>
             )}
 
@@ -128,7 +130,7 @@ export const LiveRun = () => {
 
             <div
                 className="flex-1 min-h-0 grid gap-4"
-                style={{ gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)' }}
+                style={{ gridTemplateRows: 'minmax(0, 0.9fr) minmax(0, 1.1fr)' }}
             >
                 <div className="grid grid-cols-12 gap-4 min-h-0">
                     <div className="col-span-12 xl:col-span-8 min-h-0">
@@ -149,12 +151,12 @@ export const LiveRun = () => {
                     </div>
                 </div>
 
-                <Card className="h-full min-h-0 flex flex-col">
+                <Card className="h-full min-h-0 flex flex-col overflow-hidden">
                     <h3 className="mb-3">GPU Usage</h3>
                     <div className="flex-1 min-h-0">
                         <GpuCharts
                             compact
-                            chartHeight={90}
+                            chartHeight={72}
                             visibleGpuIndices={
                                 Array.isArray(config.gpu_devices) && config.gpu_devices.length > 0
                                     ? config.gpu_devices.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value))

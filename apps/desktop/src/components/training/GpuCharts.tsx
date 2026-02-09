@@ -81,31 +81,43 @@ export const GpuCharts = ({ visibleGpuIndices, compact = false, chartHeight }: G
         return <div className="h-40 flex items-center justify-center text-secondary">No GPU data yet</div>;
     }
 
-    const resolvedChartHeight = Math.max(70, chartHeight ?? (compact ? 90 : 140));
+    const resolvedChartHeight = Math.max(64, chartHeight ?? (compact ? 76 : 140));
 
     return (
-        <div className={compact ? 'space-y-4' : 'space-y-6'}>
-            <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary ${compact ? 'text-[10px]' : 'text-xs'}`}>
+        <div className={`${compact ? 'space-y-3' : 'space-y-6'} h-full min-h-0 overflow-hidden`}>
+            <div className={`flex flex-wrap gap-2 uppercase tracking-[0.3em] text-secondary ${compact ? 'text-[9px]' : 'text-xs'}`}>
                 {latestSnapshot.map((gpu) => (
                     <div
                         key={`gpu-summary-${gpu.index}`}
-                        className="border border-graphite-700/70 bg-graphite-900 px-3 py-2 rounded"
+                        className={`border border-graphite-700/70 bg-graphite-900 rounded ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}
                     >
                         GPU {gpu.index}: <span className="text-bone">{gpu.used} / {gpu.total} GB</span> ({gpu.pct}%)
                         <span className="ml-2 text-secondary">· {gpu.temp}°C</span>
                     </div>
                 ))}
             </div>
-            <div>
-                <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">Utilization (%)</div>
-                <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary mb-2 ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
+            {compact && (
+                <div className="flex flex-wrap gap-3 text-[9px] uppercase tracking-[0.3em] text-secondary">
                     {visibleGpus.map((gpu, idx) => (
-                        <div key={`util-legend-${gpu.index}`} className="flex items-center gap-2">
+                        <div key={`global-legend-${gpu.index}`} className="flex items-center gap-2">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
                             <span>GPU {gpu.index}</span>
                         </div>
                     ))}
                 </div>
+            )}
+            <div>
+                <div className={`uppercase tracking-[0.3em] text-secondary ${compact ? 'text-[10px] mb-1' : 'text-xs mb-2'}`}>Utilization (%)</div>
+                {!compact && (
+                    <div className="flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary mb-2 text-[10px]">
+                        {visibleGpus.map((gpu, idx) => (
+                            <div key={`util-legend-${gpu.index}`} className="flex items-center gap-2">
+                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
+                                <span>GPU {gpu.index}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
                 <div style={{ height: resolvedChartHeight, minHeight: resolvedChartHeight }}>
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={resolvedChartHeight}>
                     <LineChart data={chartData}>
@@ -133,15 +145,17 @@ export const GpuCharts = ({ visibleGpuIndices, compact = false, chartHeight }: G
             </div>
 
             <div>
-                <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">VRAM (GB)</div>
-                <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary mb-2 ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
-                    {visibleGpus.map((gpu, idx) => (
-                        <div key={`mem-legend-${gpu.index}`} className="flex items-center gap-2">
-                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
-                            <span>GPU {gpu.index}</span>
-                        </div>
-                    ))}
-                </div>
+                <div className={`uppercase tracking-[0.3em] text-secondary ${compact ? 'text-[10px] mb-1' : 'text-xs mb-2'}`}>VRAM (GB)</div>
+                {!compact && (
+                    <div className="flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary mb-2 text-[10px]">
+                        {visibleGpus.map((gpu, idx) => (
+                            <div key={`mem-legend-${gpu.index}`} className="flex items-center gap-2">
+                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
+                                <span>GPU {gpu.index}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
                 <div style={{ height: resolvedChartHeight, minHeight: resolvedChartHeight }}>
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={resolvedChartHeight}>
                     <LineChart data={chartData}>
@@ -184,15 +198,17 @@ export const GpuCharts = ({ visibleGpuIndices, compact = false, chartHeight }: G
             </div>
 
             <div>
-                <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">Temperature (°C)</div>
-                <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary mb-2 ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
-                    {visibleGpus.map((gpu, idx) => (
-                        <div key={`temp-legend-${gpu.index}`} className="flex items-center gap-2">
-                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
-                            <span>GPU {gpu.index}</span>
-                        </div>
-                    ))}
-                </div>
+                <div className={`uppercase tracking-[0.3em] text-secondary ${compact ? 'text-[10px] mb-1' : 'text-xs mb-2'}`}>Temperature (°C)</div>
+                {!compact && (
+                    <div className="flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary mb-2 text-[10px]">
+                        {visibleGpus.map((gpu, idx) => (
+                            <div key={`temp-legend-${gpu.index}`} className="flex items-center gap-2">
+                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
+                                <span>GPU {gpu.index}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
                 <div style={{ height: resolvedChartHeight, minHeight: resolvedChartHeight }}>
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={resolvedChartHeight}>
                     <LineChart data={chartData}>
