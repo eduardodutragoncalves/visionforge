@@ -139,6 +139,26 @@ async function handleRevealPath(targetPath) {
   electron.shell.showItemInFolder(targetPath);
   return { ok: true };
 }
+async function handleReadTextFile(targetPath) {
+  if (!targetPath || typeof targetPath !== "string") {
+    return { ok: false, message: "Invalid path" };
+  }
+  try {
+    const resolved = path.resolve(targetPath);
+    const stats = await fs.promises.stat(resolved);
+    if (!stats.isFile()) {
+      return { ok: false, message: "Path is not a file" };
+    }
+    if (stats.size > 2 * 1024 * 1024) {
+      return { ok: false, message: "File too large to preview in app" };
+    }
+    const content = await fs.promises.readFile(resolved, "utf-8");
+    return { ok: true, content };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, message };
+  }
+}
 function createWindow() {
   win = new electron.BrowserWindow({
     icon: path.join(PUBLIC, "branding", "ai-brain-icon-256.png"),
@@ -202,6 +222,7 @@ electron.app.whenReady().then(() => {
   electron.ipcMain.handle("dialog:openVideo", handleOpenVideo);
   electron.ipcMain.handle("shell:openPath", (_event, targetPath) => handleOpenPath(targetPath));
   electron.ipcMain.handle("shell:revealPath", (_event, targetPath) => handleRevealPath(targetPath));
+  electron.ipcMain.handle("fs:readTextFile", (_event, targetPath) => handleReadTextFile(targetPath));
   electron.ipcMain.handle("window:minimize", () => win?.minimize());
   electron.ipcMain.handle("window:toggle-maximize", () => {
     if (!win) return false;

@@ -106,6 +106,18 @@ const formatTime = (iso?: string) => {
     return date.toLocaleString();
 };
 
+const normalizeClassKey = (value?: string | null) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    return raw
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/[^a-z0-9 ]/g, '')
+        .trim();
+};
+
 const getPredictionIdentity = (variantResult?: HistoryVariantResult | null): PredictionIdentity => {
     if (!variantResult || !Array.isArray(variantResult.predictions) || variantResult.predictions.length === 0) {
         return { key: 'none', label: 'No prediction', confidence: 0 };
@@ -114,8 +126,10 @@ const getPredictionIdentity = (variantResult?: HistoryVariantResult | null): Pre
     if (variantResult.task === 'classify') {
         const top = variantResult.predictions[0];
         if (!top) return { key: 'none', label: 'No prediction', confidence: 0 };
+        const normalizedLabel = normalizeClassKey(top.class_name);
+        const key = normalizedLabel ? `cls:${normalizedLabel}` : `id:${top.class_id}`;
         return {
-            key: `${top.class_id}:${top.class_name}`,
+            key,
             label: top.class_name,
             confidence: top.confidence || 0
         };
@@ -123,8 +137,10 @@ const getPredictionIdentity = (variantResult?: HistoryVariantResult | null): Pre
 
     const topDetection = [...variantResult.predictions].sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0];
     if (!topDetection) return { key: 'none', label: 'No detection', confidence: 0 };
+    const normalizedLabel = normalizeClassKey(topDetection.class_name);
+    const key = normalizedLabel ? `det:${normalizedLabel}` : `id:${topDetection.class_id}`;
     return {
-        key: `${topDetection.class_id}:${topDetection.class_name}`,
+        key,
         label: topDetection.class_name,
         confidence: topDetection.confidence || 0
     };
@@ -661,7 +677,13 @@ export const ProjectTest = () => {
             }
         });
 
-        if (isBinaryProject && verdict) {
+        const distinctPredictedKeys = new Set(
+            Object.values(activeHistory.variants || {})
+                .map((candidateResult) => getPredictionIdentity(candidateResult).key)
+                .filter((key) => key !== 'none')
+        );
+
+        if (isBinaryProject && verdict && distinctPredictedKeys.size === 2) {
             Object.entries(activeHistory.variants || {}).forEach(([candidateVariantId, candidateResult]) => {
                 const candidateIdentity = getPredictionIdentity(candidateResult);
                 if (candidateIdentity.key === sourceIdentity.key) return;
@@ -695,7 +717,13 @@ export const ProjectTest = () => {
             }
         });
 
-        if (isBinaryProject) {
+        const distinctPredictedKeys = new Set(
+            Object.values(activeHistory.variants || {})
+                .map((variantResult) => getPredictionIdentity(variantResult).key)
+                .filter((key) => key !== 'none')
+        );
+
+        if (isBinaryProject && distinctPredictedKeys.size === 2) {
             Object.entries(activeHistory.variants || {}).forEach(([variantId, variantResult]) => {
                 const identity = getPredictionIdentity(variantResult);
                 if (identity.key !== classKey && identity.key !== 'none') {
