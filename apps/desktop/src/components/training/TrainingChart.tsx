@@ -35,8 +35,11 @@ export const TrainingChart = ({ runId, compact = false }: { runId: string; compa
                     </div>
                 ))}
             </div>
-            <div className="flex-1 min-h-0" style={{ width: '100%' }}>
-                <ResponsiveContainer width="100%" height="100%">
+            <div
+                className="flex-1 min-h-0"
+                style={{ width: '100%', minHeight: compact ? 160 : 240 }}
+            >
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={compact ? 160 : 240}>
                     <LineChart data={metrics}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                         <XAxis dataKey="epoch" stroke="#6b7280" />

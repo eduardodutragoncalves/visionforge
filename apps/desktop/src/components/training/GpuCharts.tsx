@@ -106,8 +106,8 @@ export const GpuCharts = ({ visibleGpuIndices, compact = false, chartHeight }: G
                         </div>
                     ))}
                 </div>
-                <div style={{ height: resolvedChartHeight }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <div style={{ height: resolvedChartHeight, minHeight: resolvedChartHeight }}>
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={resolvedChartHeight}>
                     <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                         <XAxis dataKey="time" stroke="#6b7280" hide />
@@ -142,8 +142,8 @@ export const GpuCharts = ({ visibleGpuIndices, compact = false, chartHeight }: G
                         </div>
                     ))}
                 </div>
-                <div style={{ height: resolvedChartHeight }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <div style={{ height: resolvedChartHeight, minHeight: resolvedChartHeight }}>
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={resolvedChartHeight}>
                     <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                         <XAxis dataKey="time" stroke="#6b7280" hide />
@@ -193,8 +193,8 @@ export const GpuCharts = ({ visibleGpuIndices, compact = false, chartHeight }: G
                         </div>
                     ))}
                 </div>
-                <div style={{ height: resolvedChartHeight }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <div style={{ height: resolvedChartHeight, minHeight: resolvedChartHeight }}>
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={resolvedChartHeight}>
                     <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                         <XAxis dataKey="time" stroke="#6b7280" hide />
