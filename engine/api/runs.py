@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, List
 import uuid
 import os
 import json
+import shutil
 from datetime import datetime
 import re
 from pathlib import Path
@@ -107,3 +108,73 @@ async def get_run(project_id: str, run_id: str):
         
     with open(json_path, "r") as f:
         return json.load(f)
+
+@router.delete("/projects/{project_id}/runs/{run_id}")
+async def delete_run(project_id: str, run_id: str):
+    """
+    Delete a training run and all generated artifacts linked to it:
+    - run folder under /runs/{run_id}
+    - variants produced from this run (and their exports)
+    """
+    orchestrator.reconcile_stale_runs(project_id=project_id)
+
+    if run_id in orchestrator.active_jobs or run_id in orchestrator.queued_run_ids:
+        raise HTTPException(status_code=409, detail="Run is currently active. Stop it before deleting.")
+
+    run_dir = paths.get_run_dir(project_id, run_id)
+    if not run_dir.exists():
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    variants_root = paths.get_variants_dir(project_id)
+    removed_variants: List[str] = []
+    if variants_root.exists():
+        for var_dir in variants_root.iterdir():
+            if not var_dir.is_dir():
+                continue
+            manifest_path = var_dir / "variant.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                variant = manifests.load_manifest(manifest_path)
+            except Exception:
+                continue
+            if variant.get("run_id") == run_id:
+                shutil.rmtree(var_dir, ignore_errors=False)
+                removed_variants.append(variant.get("id", var_dir.name))
+
+    # Remove run artifacts last, so we only lose the run once linked artifacts are cleared.
+    shutil.rmtree(run_dir, ignore_errors=False)
+
+    project_manifest = paths.get_project_dir(project_id) / "project.json"
+    if project_manifest.exists():
+        try:
+            project = manifests.load_manifest(project_manifest)
+            current_primary = project.get("primaryVariantId")
+            if current_primary in removed_variants:
+                replacement = None
+                if variants_root.exists():
+                    for var_dir in variants_root.iterdir():
+                        if not var_dir.is_dir():
+                            continue
+                        candidate_manifest = var_dir / "variant.json"
+                        if not candidate_manifest.exists():
+                            continue
+                        try:
+                            candidate = manifests.load_manifest(candidate_manifest)
+                        except Exception:
+                            continue
+                        replacement = candidate.get("id", var_dir.name)
+                        if replacement:
+                            break
+                project["primaryVariantId"] = replacement
+                project["updated_at"] = datetime.now().isoformat()
+                manifests.save_manifest(project_manifest, project, "project")
+        except Exception:
+            pass
+
+    return {
+        "status": "deleted",
+        "project_id": project_id,
+        "run_id": run_id,
+        "variants_deleted": removed_variants
+    }

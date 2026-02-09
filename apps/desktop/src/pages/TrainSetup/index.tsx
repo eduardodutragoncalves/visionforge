@@ -15,7 +15,8 @@ import {
     PlayCircle,
     RefreshCcw,
     Rocket,
-    SlidersHorizontal
+    SlidersHorizontal,
+    Trash2
 } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -60,6 +61,7 @@ const getRunStatusMeta = (status?: string): { label: string; pill: StatusType; i
 export const TrainSetup = () => {
     const { projectId } = useParams();
     const navigate = useNavigate();
+    const resetRun = useTrainingStore(state => state.resetRun);
     const { gpu, gpus } = useEngineStore(state => ({ gpu: state.gpu, gpus: state.gpus }));
     const activeRuns = useTrainingStore(state =>
         Object.values(state.runs).filter((run) =>
@@ -86,6 +88,7 @@ export const TrainSetup = () => {
     const [runHistory, setRunHistory] = useState<RunHistoryItem[]>([]);
     const [runOnnxMap, setRunOnnxMap] = useState<Record<string, boolean>>({});
     const [historyLoading, setHistoryLoading] = useState(false);
+    const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
     const [splitTrainPct, setSplitTrainPct] = useState(80);
     const [splitValPct, setSplitValPct] = useState(20);
     const [splitTestPct, setSplitTestPct] = useState(0);
@@ -328,6 +331,38 @@ export const TrainSetup = () => {
             console.error(e);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDeleteRun = async (run: RunHistoryItem) => {
+        if (!projectId || !run?.id) return;
+        const confirmed = window.confirm(
+            `Excluir o treino ${run.name || run.id}?\n\nIsso remove o run e todos os recursos gerados (incluindo variantes/exportacoes associadas).`
+        );
+        if (!confirmed) return;
+        setDeletingRunId(run.id);
+        try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/runs/${run.id}`, {
+                method: 'DELETE'
+            });
+            if (!res.ok) {
+                const message = await res.text();
+                window.alert(`Nao foi possivel excluir o treino.\n${message}`);
+                return;
+            }
+            resetRun(run.id);
+            setRunHistory((prev) => prev.filter((item) => item.id !== run.id));
+            setRunOnnxMap((prev) => {
+                const next = { ...prev };
+                delete next[run.id];
+                return next;
+            });
+            await loadHistory();
+        } catch (error) {
+            console.error(error);
+            window.alert('Erro ao excluir treino.');
+        } finally {
+            setDeletingRunId(null);
         }
     };
 
@@ -656,6 +691,8 @@ export const TrainSetup = () => {
                             const statusMeta = getRunStatusMeta(run.status);
                             const StatusIcon = statusMeta.icon;
                             const onnxExported = Boolean(runOnnxMap[run.id]);
+                            const isInProgress = isInProgressStatus(run.status);
+                            const isDeleting = deletingRunId === run.id;
                             return (
                                 <div
                                     key={run.id}
@@ -745,6 +782,17 @@ export const TrainSetup = () => {
                                         >
                                             <ArrowUpRight size={13} className="mr-1" />
                                             Abrir
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-error hover:text-error"
+                                            onClick={() => handleDeleteRun(run)}
+                                            disabled={isInProgress || isDeleting}
+                                            title={isInProgress ? 'Treino em progresso nao pode ser excluido.' : 'Excluir treino e artefatos'}
+                                        >
+                                            <Trash2 size={13} className="mr-1" />
+                                            {isDeleting ? 'Excluindo...' : 'Excluir'}
                                         </Button>
                                     </div>
                                 </div>
