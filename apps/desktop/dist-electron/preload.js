@@ -20,6 +20,8 @@ electron.contextBridge.exposeInMainWorld("ipcRenderer", {
   openDirectory: () => electron.ipcRenderer.invoke("dialog:openDirectory"),
   openFiles: () => electron.ipcRenderer.invoke("dialog:openFiles"),
   openVideo: () => electron.ipcRenderer.invoke("dialog:openVideo"),
+  openPath: (targetPath) => electron.ipcRenderer.invoke("shell:openPath", targetPath),
+  revealPath: (targetPath) => electron.ipcRenderer.invoke("shell:revealPath", targetPath),
   minimize: () => electron.ipcRenderer.invoke("window:minimize"),
   toggleMaximize: () => electron.ipcRenderer.invoke("window:toggle-maximize"),
   close: () => electron.ipcRenderer.invoke("window:close"),

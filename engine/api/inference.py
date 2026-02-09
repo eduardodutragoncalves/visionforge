@@ -3,11 +3,22 @@ from fastapi.responses import FileResponse
 from typing import Optional
 import mimetypes
 from pathlib import Path
+from pydantic import BaseModel
+from typing import List
 from engine.io import paths
 from engine.services.inference_service import inference_service
 from engine.services.inference_history import inference_history_service
 
 router = APIRouter()
+
+
+class FeedbackUpdateInput(BaseModel):
+    variant_id: str
+    verdict: Optional[str] = None
+
+
+class FeedbackBatchRequest(BaseModel):
+    updates: List[FeedbackUpdateInput]
 
 @router.post("/variants/{variant_id}/infer")
 async def run_infer(
@@ -99,5 +110,18 @@ async def set_inference_feedback(
 ):
     try:
         return inference_history_service.set_feedback(project_id, image_id, variant_id, verdict)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/projects/{project_id}/inference/history/{image_id}/feedback/batch")
+async def set_inference_feedback_batch(
+    project_id: str,
+    image_id: str,
+    request: FeedbackBatchRequest
+):
+    try:
+        updates = {item.variant_id: item.verdict for item in request.updates}
+        return inference_history_service.set_feedback_batch(project_id, image_id, updates)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

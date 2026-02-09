@@ -101,6 +101,24 @@ class InferenceHistoryService:
         self._save_history(project_id, history)
         return variants[variant_id]
 
+    def set_feedback_batch(self, project_id: str, image_id: str, updates: Dict[str, str | None]) -> Dict[str, Any]:
+        history = self._load_history(project_id)
+        items = history.get("items", [])
+        entry = next((item for item in items if item.get("image_id") == image_id), None)
+        if not entry:
+            raise ValueError("History item not found")
+
+        variants = entry.setdefault("variants", {})
+        updated: Dict[str, Any] = {}
+        for variant_id, verdict in updates.items():
+            if variant_id not in variants:
+                continue
+            variants[variant_id]["feedback"] = verdict
+            updated[variant_id] = variants[variant_id]
+
+        self._save_history(project_id, history)
+        return {"image_id": image_id, "updated": updated}
+
     def get_image_path(self, project_id: str, image_id: str) -> Path:
         history = self._load_history(project_id)
         items = history.get("items", [])
