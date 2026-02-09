@@ -749,9 +749,16 @@ export const ProjectTest = () => {
         const totalModels = Math.max(variants.length, 1);
         return history.map((item) => {
             const testedModels = Object.keys(item.variants || {}).length;
+            const evaluatedModels = Object.values(item.variants || {}).filter((variantResult) =>
+                variantResult?.feedback === 'correct' || variantResult?.feedback === 'incorrect'
+            ).length;
+            const expectedModels = variants.length;
+            const isDone = expectedModels > 0 && evaluatedModels >= expectedModels;
             return {
                 ...item,
                 testedModels,
+                evaluatedModels,
+                isDone,
                 coveragePct: (testedModels / totalModels) * 100
             };
         });
@@ -1027,12 +1034,17 @@ export const ProjectTest = () => {
                                         key={item.image_id}
                                         type="button"
                                         onClick={() => setActiveHistoryId(item.image_id)}
-                                        className={`rounded border p-1 text-left transition-all ${
+                                        className={`relative rounded border p-1 text-left transition-all ${
                                             activeHistoryId === item.image_id
                                                 ? 'border-accent-primary bg-accent-primary/10'
                                                 : 'border-graphite-700/70 bg-graphite-900/60'
                                         }`}
                                     >
+                                        {item.isDone && (
+                                            <span className="absolute right-1 top-1 rounded border border-accent-success/60 bg-accent-success/20 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.18em] text-accent-success">
+                                                Done
+                                            </span>
+                                        )}
                                         <img
                                             src={historyImageUrl(item)}
                                             alt={item.original_name || item.image_id}
@@ -1041,8 +1053,9 @@ export const ProjectTest = () => {
                                         <div className="mt-1 h-1 w-full overflow-hidden rounded bg-graphite-700">
                                             <div className="h-full bg-accent-primary" style={{ width: `${item.coveragePct}%` }} />
                                         </div>
-                                        <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-secondary">
-                                            {item.testedModels}/{variants.length || 0}
+                                        <div className="mt-1 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-secondary">
+                                            <span>{item.testedModels}/{variants.length || 0}</span>
+                                            <span>{item.evaluatedModels}/{variants.length || 0} eval</span>
                                         </div>
                                     </button>
                                 ))}
