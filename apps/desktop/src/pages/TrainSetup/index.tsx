@@ -34,6 +34,8 @@ export const TrainSetup = () => {
     const [runtimeName, setRuntimeName] = useState('');
     const [advice, setAdvice] = useState<string | null>(null);
     const [gpuSelection, setGpuSelection] = useState<'gpu0' | 'gpu1' | 'dual'>('gpu0');
+    const [runHistory, setRunHistory] = useState<any[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
 
     const gpuDevices = gpuSelection === 'dual' ? [0, 1] : [gpuSelection === 'gpu1' ? 1 : 0];
     const vramScale = gpuSelection === 'dual' ? 2 : 1;
@@ -70,6 +72,78 @@ export const TrainSetup = () => {
         };
         loadDatasetTask();
     }, [projectId]);
+
+    const loadHistory = async () => {
+        if (!projectId) return;
+        setHistoryLoading(true);
+        try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/runs`);
+            if (!res.ok) {
+                setRunHistory([]);
+                return;
+            }
+            const data = await res.json();
+            setRunHistory(Array.isArray(data) ? data : []);
+        } catch {
+            setRunHistory([]);
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadHistory();
+    }, [projectId]);
+
+    const applyRunConfig = (run: any) => {
+        const cfg = run?.config || {};
+        setConfig((prev) => ({
+            ...prev,
+            epochs: cfg.epochs ?? prev.epochs,
+            batch_size: cfg.batch_size ?? cfg.batch ?? prev.batch_size,
+            base_model: cfg.base_model ?? prev.base_model,
+            framework: cfg.framework ?? prev.framework,
+            img_size: cfg.img_size ?? prev.img_size
+        }));
+        if (cfg.target) {
+            setTarget(cfg.target);
+        }
+        if (cfg.runtime === 'local' || cfg.runtime === 'conda' || cfg.runtime === 'docker') {
+            setRuntime(cfg.runtime);
+        }
+        if (cfg.runtime_config?.conda_env) {
+            setRuntimeName(cfg.runtime_config.conda_env);
+        } else if (cfg.runtime_config?.docker_image) {
+            setRuntimeName(cfg.runtime_config.docker_image);
+        } else {
+            setRuntimeName('');
+        }
+        if (Array.isArray(cfg.gpu_devices) && cfg.gpu_devices.length > 1) {
+            setGpuSelection('dual');
+        } else if (Array.isArray(cfg.gpu_devices) && cfg.gpu_devices[0] === 1) {
+            setGpuSelection('gpu1');
+        } else if (Array.isArray(cfg.gpu_devices)) {
+            setGpuSelection('gpu0');
+        }
+    };
+
+    const formatMetric = (value: any) => {
+        if (typeof value !== 'number') return '—';
+        if (Number.isNaN(value)) return '—';
+        return value.toFixed(4);
+    };
+
+    const buildIndicators = (run: any) => {
+        const metrics = run?.final_metrics || {};
+        const items = [
+            { label: 'Accuracy', value: metrics.accuracy },
+            { label: 'Loss', value: metrics.loss },
+            { label: 'mAP50', value: metrics.final_map },
+            { label: 'Precision', value: metrics.precision },
+            { label: 'Recall', value: metrics.recall }
+        ];
+        return items.filter((item) => item.value !== undefined && item.value !== null);
+    };
 
     const modelOptions = useMemo(() => {
         if (datasetTask === 'classification') {
@@ -130,6 +204,7 @@ export const TrainSetup = () => {
             if (res.ok) {
                 const data = await res.json();
                 navigate(`/projects/${projectId}/train/live/${data.run_id}`);
+                loadHistory();
             } else {
                 console.error("Failed to start run");
             }
@@ -328,6 +403,84 @@ export const TrainSetup = () => {
                     </Card>
                 </div>
             </div>
+
+            <Card>
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                        <h3 className="text-xl font-semibold">Training History</h3>
+                        <p className="text-secondary text-sm">Runs previously executed for this project.</p>
+                    </div>
+                    <Button variant="ghost" onClick={loadHistory} disabled={historyLoading}>
+                        {historyLoading ? 'Refreshing...' : 'Refresh'}
+                    </Button>
+                </div>
+                {historyLoading ? (
+                    <div className="mt-4 text-secondary text-sm">Loading history...</div>
+                ) : runHistory.length === 0 ? (
+                    <div className="mt-4 text-secondary text-sm">No runs yet.</div>
+                ) : (
+                    <div className="mt-4 space-y-4">
+                        {runHistory.map((run) => {
+                            const indicators = buildIndicators(run);
+                            return (
+                                <div key={run.id} className="border border-graphite-700/70 bg-graphite-900/60 rounded-lg p-4 space-y-3">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                        <div>
+                                            <div className="text-xs uppercase tracking-[0.4em] text-haze">Run</div>
+                                            <div className="text-bone font-mono">{run.name || run.id}</div>
+                                            <div className="text-xs text-secondary mt-1">
+                                                Status: {run.status || 'unknown'}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            <Button size="sm" variant="secondary" onClick={() => applyRunConfig(run)}>
+                                                Duplicar configuração
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => navigate(`/projects/${projectId}/train/live/${run.id}`)}
+                                            >
+                                                Abrir
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.3em] text-secondary">
+                                        {run.config?.base_model && (
+                                            <span className="stat-chip">Model: <strong>{run.config.base_model}</strong></span>
+                                        )}
+                                        {run.config?.epochs && (
+                                            <span className="stat-chip">Epochs: <strong>{run.config.epochs}</strong></span>
+                                        )}
+                                        {(run.config?.batch_size || run.config?.batch) && (
+                                            <span className="stat-chip">
+                                                Batch: <strong>{run.config?.batch_size ?? run.config?.batch}</strong>
+                                            </span>
+                                        )}
+                                        {run.config?.img_size && (
+                                            <span className="stat-chip">Image Size: <strong>{run.config.img_size}</strong></span>
+                                        )}
+                                        {run.created_at && (
+                                            <span className="stat-chip">Started: <strong>{new Date(run.created_at).toLocaleString()}</strong></span>
+                                        )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.3em] text-secondary">
+                                        {indicators.length === 0 ? (
+                                            <span className="text-secondary">No metrics recorded.</span>
+                                        ) : (
+                                            indicators.map((item) => (
+                                                <span key={`${run.id}-${item.label}`} className="stat-chip">
+                                                    {item.label}: <strong>{formatMetric(item.value)}</strong>
+                                                </span>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </Card>
         </div>
     );
 };

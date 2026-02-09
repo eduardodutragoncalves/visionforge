@@ -278,8 +278,6 @@ class Orchestrator:
 
             exit_code = await process.wait()
             if exit_code == 0:
-                self._update_run_status(run_json_path, "completed")
-                
                 # Retrieve final metrics
                 final_metrics = {}
                 if os.path.exists(metrics_path):
@@ -294,6 +292,11 @@ class Orchestrator:
                             except: 
                                 pass
 
+                self._update_run_status(run_json_path, "completed", {
+                    "completed_at": datetime.now().isoformat(),
+                    "final_metrics": final_metrics
+                })
+
                 # Execute Post Processor
                 try:
                     handle_training_completion(project_id, run_id, final_metrics, config)
@@ -302,10 +305,13 @@ class Orchestrator:
 
                 await manager.broadcast("train/completed", {"run_id": run_id, "exit_code": 0})
             else:
-                self._update_run_status(run_json_path, "failed")
+                self._update_run_status(run_json_path, "failed", {
+                    "failed_at": datetime.now().isoformat(),
+                    "error": f"exit_code={exit_code}"
+                })
                 await manager.broadcast("train/failed", {"run_id": run_id, "exit_code": exit_code})
 
-    def _update_run_status(self, file_path: str, status: str):
+    def _update_run_status(self, file_path: str, status: str, updates: Optional[Dict] = None):
         if os.path.exists(file_path):
             with open(file_path, "r") as f:
                 data = json.load(f)
@@ -314,13 +320,27 @@ class Orchestrator:
         
         data["status"] = status
         data["updated_at"] = datetime.now().isoformat()
+        if updates:
+            data.update(updates)
         
         with open(file_path, "w") as f:
             json.dump(data, f, indent=2)
 
     async def _handle_job_failure(self, job, error_msg):
         # Fallback to ensure run.json is updated if python crash
-        pass
+        try:
+            project_id = job.get("project_id")
+            run_id = job.get("run_id")
+            if not project_id or not run_id:
+                return
+            run_dir = os.path.join(self.workspace_root, "projects", project_id, "runs", run_id)
+            run_json_path = os.path.join(run_dir, "run.json")
+            self._update_run_status(run_json_path, "failed", {
+                "failed_at": datetime.now().isoformat(),
+                "error": error_msg
+            })
+        except Exception:
+            pass
 
 # Singleton
 orchestrator = Orchestrator()
