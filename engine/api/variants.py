@@ -1,5 +1,4 @@
-from fastapi import APIRouter, HTTPException
-from typing import List, Dict, Any
+from fastapi import APIRouter
 from engine.io import paths, manifests
 
 router = APIRouter()
@@ -17,10 +16,21 @@ async def list_variants(project_id: str):
             if manifest_path.exists():
                 try:
                     data = manifests.load_manifest(manifest_path)
+                    exports_dir = var_dir / "exports"
+                    onnx_candidates = [
+                        exports_dir / "model.onnx",
+                        var_dir / "model.onnx"
+                    ]
+                    onnx_path = next((candidate for candidate in onnx_candidates if candidate.exists()), None)
+                    data["onnx_exported"] = bool(onnx_path)
+                    data["exports"] = {
+                        "onnx": bool(onnx_path),
+                        "onnx_path": str(onnx_path) if onnx_path else None
+                    }
                     variants.append(data)
                 except Exception:
                     pass
-    return variants
+    return sorted(variants, key=lambda item: item.get("created_at", ""), reverse=True)
     
 @router.post("/variants/{variant_id}/export")
 async def export_variant(variant_id: str, format: str = "onnx", project_id: str = "p1"): # project_id hack if not passed
