@@ -460,7 +460,19 @@
   }
 
   .splash-inline {
-    @apply relative flex justify-end px-8 pt-4;
+    @apply absolute right-8 z-20 pointer-events-none;
+    top: 72px;
+    transition: opacity 0.28s ease, transform 0.28s ease;
+  }
+
+  .splash-inline-enter {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .splash-inline-exit {
+    opacity: 0;
+    transform: translateY(-8px);
   }
 
   .splash-inline-card {
