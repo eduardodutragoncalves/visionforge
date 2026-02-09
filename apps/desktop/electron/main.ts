@@ -179,6 +179,7 @@ function createWindow() {
         console.log(`[renderer:${levelName}] ${message} (${sourceId}:${line})`)
     })
     win.once('ready-to-show', () => {
+        win?.maximize()
         win?.show()
         if (process.env.VITE_OPEN_DEVTOOLS === '1') {
             win?.webContents.openDevTools({ mode: 'detach' })
