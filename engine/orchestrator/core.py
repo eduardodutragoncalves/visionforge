@@ -186,6 +186,16 @@ class Orchestrator:
                  "--model", config.get("base_model", "yolov8n.pt")
              ]
 
+             split_train = config.get("split_train")
+             split_val = config.get("split_val")
+             split_test = config.get("split_test")
+             if split_train is not None:
+                 script_args.extend(["--split-train", str(split_train)])
+             if split_val is not None:
+                 script_args.extend(["--split-val", str(split_val)])
+             if split_test is not None:
+                 script_args.extend(["--split-test", str(split_test)])
+
              gpu_devices = config.get("gpu_devices")
              if isinstance(gpu_devices, list) and gpu_devices:
                  device_str = ",".join(str(device) for device in gpu_devices)

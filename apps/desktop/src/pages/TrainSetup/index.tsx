@@ -36,6 +36,9 @@ export const TrainSetup = () => {
     const [gpuSelection, setGpuSelection] = useState<'gpu0' | 'gpu1' | 'dual'>('gpu0');
     const [runHistory, setRunHistory] = useState<any[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
+    const [splitTrainPct, setSplitTrainPct] = useState(80);
+    const [splitValPct, setSplitValPct] = useState(20);
+    const [splitTestPct, setSplitTestPct] = useState(0);
 
     const gpuDevices = gpuSelection === 'dual' ? [0, 1] : [gpuSelection === 'gpu1' ? 1 : 0];
     const vramScale = gpuSelection === 'dual' ? 2 : 1;
@@ -72,6 +75,9 @@ export const TrainSetup = () => {
         };
         loadDatasetTask();
     }, [projectId]);
+
+    const splitTotal = splitTrainPct + splitValPct + splitTestPct;
+    const splitValid = splitTotal === 100;
 
     const loadHistory = async () => {
         if (!projectId) return;
@@ -124,6 +130,15 @@ export const TrainSetup = () => {
             setGpuSelection('gpu1');
         } else if (Array.isArray(cfg.gpu_devices)) {
             setGpuSelection('gpu0');
+        }
+        if (typeof cfg.split_train === 'number') {
+            setSplitTrainPct(cfg.split_train);
+        }
+        if (typeof cfg.split_val === 'number') {
+            setSplitValPct(cfg.split_val);
+        }
+        if (typeof cfg.split_test === 'number') {
+            setSplitTestPct(cfg.split_test);
         }
     };
 
@@ -193,6 +208,9 @@ export const TrainSetup = () => {
                         runtime,
                         gpu_devices: gpuDevices,
                         gpu_mode: gpuSelection === 'dual' ? 'multi' : 'single',
+                        split_train: datasetTask === 'classification' ? splitTrainPct : undefined,
+                        split_val: datasetTask === 'classification' ? splitValPct : undefined,
+                        split_test: datasetTask === 'classification' ? splitTestPct : undefined,
                         runtime_config: {
                             conda_env: runtime === 'conda' ? runtimeName : undefined,
                             docker_image: runtime === 'docker' ? runtimeName : undefined
@@ -280,6 +298,42 @@ export const TrainSetup = () => {
                                 value={config.img_size}
                                 onChange={e => setConfig({ ...config, img_size: parseInt(e.target.value) })}
                             />
+                            {datasetTask === 'classification' && (
+                                <>
+                                    <Input
+                                        label="Split Train (%)"
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={splitTrainPct}
+                                        onChange={e => setSplitTrainPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                                    />
+                                    <Input
+                                        label="Split Val (%)"
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={splitValPct}
+                                        onChange={e => setSplitValPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                                    />
+                                    <Input
+                                        label="Split Test (%)"
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={splitTestPct}
+                                        onChange={e => setSplitTestPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                                    />
+                                    <div className="col-span-2 text-xs text-secondary">
+                                        Total: {splitTotal}% {splitValid ? '' : '· Ajuste para 100%.'}
+                                    </div>
+                                </>
+                            )}
+                            {datasetTask && datasetTask !== 'classification' && (
+                                <div className="col-span-2 text-xs text-secondary">
+                                    Split de treino/validação segue a estrutura do dataset para {datasetTask}.
+                                </div>
+                            )}
                         </div>
                     </Card>
 
@@ -395,7 +449,7 @@ export const TrainSetup = () => {
                                 variant="primary"
                                 className="w-full h-12 text-lg"
                                 onClick={handleStart}
-                                disabled={loading}
+                                disabled={loading || (datasetTask === 'classification' && !splitValid)}
                             >
                                 {loading ? 'Starting...' : 'Start Training'}
                             </Button>
@@ -459,6 +513,16 @@ export const TrainSetup = () => {
                                         )}
                                         {run.config?.img_size && (
                                             <span className="stat-chip">Image Size: <strong>{run.config.img_size}</strong></span>
+                                        )}
+                                        {(run.config?.split_train !== undefined ||
+                                            run.config?.split_val !== undefined ||
+                                            run.config?.split_test !== undefined) && (
+                                            <span className="stat-chip">
+                                                Split:{' '}
+                                                <strong>
+                                                    {run.config?.split_train ?? 0}% / {run.config?.split_val ?? 0}% / {run.config?.split_test ?? 0}%
+                                                </strong>
+                                            </span>
                                         )}
                                         {run.created_at && (
                                             <span className="stat-chip">Started: <strong>{new Date(run.created_at).toLocaleString()}</strong></span>

@@ -47,6 +47,13 @@ export const LiveRun = () => {
         { label: 'Image Size', value: config.img_size },
         { label: 'Target', value: config.target },
         { label: 'Runtime', value: config.runtime },
+        {
+            label: 'Split',
+            value:
+                config.split_train !== undefined || config.split_val !== undefined || config.split_test !== undefined
+                    ? `${config.split_train ?? 0}% / ${config.split_val ?? 0}% / ${config.split_test ?? 0}%`
+                    : undefined
+        },
         { label: 'GPU', value: Array.isArray(config.gpu_devices) ? config.gpu_devices.join(', ') : undefined },
         { label: 'Conda Env', value: config.runtime_config?.conda_env },
         { label: 'Docker Image', value: config.runtime_config?.docker_image }

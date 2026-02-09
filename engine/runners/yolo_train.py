@@ -32,6 +32,9 @@ def main():
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--model", type=str, default="yolov8n.pt")
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--split-train", type=float, default=None)
+    parser.add_argument("--split-val", type=float, default=None)
+    parser.add_argument("--split-test", type=float, default=None)
     args = parser.parse_args()
     task = (args.task or "detect").lower()
     if task == "classification":
@@ -80,11 +83,56 @@ def main():
             raise ValueError("No labeled images found for classification")
 
         labeled_images.sort(key=lambda item: item[0].get("id", ""))
-        split_index = max(1, int(len(labeled_images) * 0.8))
+        total_images = len(labeled_images)
+        train_ratio = args.split_train
+        val_ratio = args.split_val
+        test_ratio = args.split_test
+
+        if train_ratio is None and val_ratio is None and test_ratio is None:
+            train_ratio, val_ratio, test_ratio = 80, 20, 0
+
+        ratios = [train_ratio or 0, val_ratio or 0, test_ratio or 0]
+        total_ratio = sum(ratios)
+        if total_ratio <= 0:
+            ratios = [80, 20, 0]
+            total_ratio = 100
+        if total_ratio > 1.5:
+            ratios = [r / 100 for r in ratios]
+        ratio_total = sum(ratios)
+        if ratio_total <= 0:
+            ratios = [0.8, 0.2, 0.0]
+            ratio_total = 1.0
+        ratios = [r / ratio_total for r in ratios]
+
+        train_count = int(total_images * ratios[0])
+        val_count = int(total_images * ratios[1])
+        test_count = int(total_images * ratios[2])
+        if total_images > 0 and train_count == 0:
+            train_count = 1
+        remaining = total_images - (train_count + val_count + test_count)
+        if remaining > 0:
+            train_count += remaining
+        elif remaining < 0:
+            overflow = -remaining
+            if test_count > 0:
+                take = min(test_count, overflow)
+                test_count -= take
+                overflow -= take
+            if overflow > 0 and val_count > 0:
+                take = min(val_count, overflow)
+                val_count -= take
+                overflow -= take
+            if overflow > 0 and train_count > 1:
+                train_count = max(1, train_count - overflow)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         for idx, (image, label_id) in enumerate(labeled_images):
-            split = "train" if idx < split_index else "val"
+            if idx < train_count:
+                split = "train"
+            elif idx < train_count + val_count:
+                split = "val"
+            else:
+                split = "test"
             class_name = class_map[label_id]
             target_dir = output_dir / split / class_name
             target_dir.mkdir(parents=True, exist_ok=True)
