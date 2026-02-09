@@ -287,10 +287,6 @@ export const ProjectTest = () => {
         setImageSrc(historyImageUrl(activeHistory));
     }, [activeHistoryId, selectedVariant, projectId]);
 
-    const getVariantName = (variantId: string) => {
-        return variants.find((variant) => variant.id === variantId)?.name || variantId;
-    };
-
     const renderPredictionSummary = (variantResult: HistoryVariantResult) => {
         if (variantResult.task === 'classify') {
             const top = variantResult.predictions?.[0];
