@@ -877,8 +877,8 @@ export const ProjectTest = () => {
                 </Card>
             )}
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-                <div className="space-y-6 xl:col-span-4">
+            <div className="grid min-h-0 grid-cols-1 gap-6 xl:grid-cols-12 xl:items-stretch">
+                <div className="flex min-h-0 flex-col gap-6 xl:col-span-4">
                     <Card className="space-y-4">
                         <div className="flex items-center gap-2 text-xs uppercase tracking-[0.32em] text-secondary">
                             <Upload size={14} />
@@ -1016,7 +1016,7 @@ export const ProjectTest = () => {
                         </div>
                     </Card>
 
-                    <Card className="space-y-3">
+                    <Card className="flex min-h-0 flex-1 flex-col space-y-3">
                         <div className="flex items-center justify-between">
                             <div className="text-xs uppercase tracking-[0.32em] text-secondary">Validation History</div>
                             <Button size="sm" variant="ghost" onClick={loadHistory} disabled={historyLoading || Boolean(batchProgress?.active)}>
@@ -1028,7 +1028,7 @@ export const ProjectTest = () => {
                         {historyWithCoverage.length === 0 ? (
                             <div className="text-sm text-secondary">Nenhuma imagem validada ainda.</div>
                         ) : (
-                            <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
+                            <div className="grid min-h-0 flex-1 content-start grid-cols-3 gap-2 overflow-y-auto pr-1">
                                 {historyWithCoverage.map((item) => (
                                     <button
                                         key={item.image_id}
@@ -1064,7 +1064,7 @@ export const ProjectTest = () => {
                     </Card>
                 </div>
 
-                <div className="space-y-6 xl:col-span-8">
+                <div className="flex min-h-0 flex-col gap-6 xl:col-span-8">
                     <Card>
                         <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div>
