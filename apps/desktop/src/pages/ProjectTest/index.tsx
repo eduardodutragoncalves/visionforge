@@ -1075,8 +1075,8 @@ export const ProjectTest = () => {
                         </div>
 
                         <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                            <div className="xl:col-span-7">
-                                <div className="relative min-h-[380px] rounded-xl border border-graphite-700/70 bg-black/35 p-3">
+                            <div className="xl:col-span-8">
+                                <div className="relative min-h-[520px] rounded-xl border border-graphite-700/70 bg-black/35 p-3">
                                     {!activeImageSrc && (
                                         <div className="absolute inset-0 flex items-center justify-center text-center text-secondary">
                                             <div>
@@ -1087,12 +1087,12 @@ export const ProjectTest = () => {
                                     )}
 
                                     {activeImageSrc && (
-                                        <div className="relative flex h-full min-h-[360px] items-center justify-center">
+                                        <div className="relative flex h-full min-h-[500px] items-center justify-center">
                                             <img
                                                 ref={imgRef}
                                                 src={activeImageSrc}
                                                 alt={activeHistory?.original_name || activeHistory?.image_id}
-                                                className="max-h-[500px] max-w-full rounded object-contain"
+                                                className="max-h-[700px] max-w-full rounded object-contain"
                                                 onLoad={drawOverlay}
                                             />
                                             <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" />
@@ -1101,7 +1101,7 @@ export const ProjectTest = () => {
                                 </div>
                             </div>
 
-                            <div className="space-y-3 xl:col-span-5">
+                            <div className="space-y-3 xl:col-span-4">
                                 <div className="rounded-xl border border-graphite-700/70 bg-graphite-900/55 p-3">
                                     <div className="text-xs uppercase tracking-[0.24em] text-secondary">Selected Image</div>
                                     <div className="mt-1 truncate text-sm font-semibold">{activeHistory?.original_name || activeHistory?.image_id || '—'}</div>
