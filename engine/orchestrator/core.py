@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from typing import Dict, Optional
 from datetime import datetime
@@ -227,10 +228,23 @@ class Orchestrator:
             cwd=cwd
         )
 
+        # In some multi-GPU Ultralytics modes, python callbacks that emit VF_EVENT metrics
+        # may not run in the parent process. Keep a log-based fallback parser for progress.
+        saw_vf_metrics = False
+        fallback_last_epoch = 0
+        fallback_last_loss: Optional[float] = None
+        fallback_last_accuracy: Optional[float] = None
+
+        ansi_re = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+        epoch_re = re.compile(r"\b(\d{1,4})\s*/\s*(\d{1,4})\b")
+        loss_re = re.compile(r"\b\d+(?:\.\d+)?G\s+([0-9]*\.?[0-9]+)\b")
+        acc_re = re.compile(r"\ball\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\b")
+
         # File handles
         with open(logs_path, "a") as f_log, open(metrics_path, "a") as f_metrics:
             
             async def read_stream(stream, is_stderr=False):
+                nonlocal saw_vf_metrics, fallback_last_epoch, fallback_last_loss, fallback_last_accuracy
                 while True:
                     line = await stream.readline()
                     if not line:
@@ -257,6 +271,7 @@ class Orchestrator:
 
                             # Persist metrics specifically
                             if event_type == "train/metrics":
+                                saw_vf_metrics = True
                                 f_metrics.write(json.dumps(payload) + "\n")
                                 f_metrics.flush()
                             
@@ -274,6 +289,47 @@ class Orchestrator:
                                 "message": decoded_line,
                                 "level": "INFO"
                              })
+
+                             # Fallback progress parser for Ultralytics logs without VF_EVENT metrics.
+                             if framework == "ultralytics" and not saw_vf_metrics:
+                                clean_line = ansi_re.sub("", decoded_line).replace("\r", " ")
+                                acc_match = acc_re.search(clean_line)
+                                if acc_match:
+                                    try:
+                                        fallback_last_accuracy = float(acc_match.group(1))
+                                    except Exception:
+                                        pass
+
+                                epoch_match = epoch_re.search(clean_line)
+                                if epoch_match:
+                                    try:
+                                        epoch = int(epoch_match.group(1))
+                                        total_epochs = int(epoch_match.group(2))
+                                    except Exception:
+                                        epoch = 0
+                                        total_epochs = 0
+
+                                    if epoch > fallback_last_epoch and total_epochs > 0:
+                                        loss_match = loss_re.search(clean_line)
+                                        if loss_match:
+                                            try:
+                                                fallback_last_loss = float(loss_match.group(1))
+                                            except Exception:
+                                                pass
+
+                                        parsed_metric = {
+                                            "run_id": run_id,
+                                            "project_id": project_id,
+                                            "epoch": epoch,
+                                            "total_epochs": total_epochs,
+                                            "loss": fallback_last_loss if fallback_last_loss is not None else 0.0,
+                                            "accuracy": fallback_last_accuracy if fallback_last_accuracy is not None else 0.0
+                                        }
+                                        fallback_last_epoch = epoch
+
+                                        f_metrics.write(json.dumps(parsed_metric) + "\n")
+                                        f_metrics.flush()
+                                        await manager.broadcast("train/metrics", parsed_metric)
                         else:
                              await manager.broadcast("train/logs", {
                                 "run_id": run_id, 
