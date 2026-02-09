@@ -14,14 +14,20 @@ const SERIES = [
     { key: 'accuracy', label: 'Accuracy', color: '#00f0ff' }
 ];
 
-export const TrainingChart = ({ runId }: { runId: string }) => {
+export const TrainingChart = ({ runId, compact = false }: { runId: string; compact?: boolean }) => {
     const metrics = useTrainingStore(state => state.runs[runId]?.metrics ?? []);
 
-    if (metrics.length === 0) return <div className="h-64 flex items-center justify-center text-secondary">No metrics yet</div>;
+    if (metrics.length === 0) {
+        return (
+            <div className={`flex items-center justify-center text-secondary ${compact ? 'h-40' : 'h-64'}`}>
+                No metrics yet
+            </div>
+        );
+    }
 
     return (
-        <div className="space-y-2">
-            <div className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.3em] text-secondary">
+        <div className="flex h-full min-h-0 flex-col gap-2">
+            <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary ${compact ? 'text-[10px]' : 'text-xs'}`}>
                 {SERIES.map((item) => (
                     <div key={item.key} className="flex items-center gap-2">
                         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
@@ -29,8 +35,8 @@ export const TrainingChart = ({ runId }: { runId: string }) => {
                     </div>
                 ))}
             </div>
-            <div style={{ width: '100%', height: 300 }}>
-                <ResponsiveContainer>
+            <div className="flex-1 min-h-0" style={{ width: '100%' }}>
+                <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={metrics}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                         <XAxis dataKey="epoch" stroke="#6b7280" />

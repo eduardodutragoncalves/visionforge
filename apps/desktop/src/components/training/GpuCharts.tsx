@@ -12,7 +12,13 @@ import { useEngineStore } from '../../store/engineStore';
 
 const LINE_COLORS = ['#2fb8ff', '#ff5c6f', '#28d17c', '#f6b73c'];
 
-export const GpuCharts = ({ visibleGpuIndices }: { visibleGpuIndices?: number[] }) => {
+type GpuChartsProps = {
+    visibleGpuIndices?: number[];
+    compact?: boolean;
+    chartHeight?: number;
+};
+
+export const GpuCharts = ({ visibleGpuIndices, compact = false, chartHeight }: GpuChartsProps) => {
     const { gpuTimeline, gpus } = useEngineStore((state) => ({
         gpuTimeline: state.gpuTimeline,
         gpus: state.gpus
@@ -75,9 +81,11 @@ export const GpuCharts = ({ visibleGpuIndices }: { visibleGpuIndices?: number[] 
         return <div className="h-40 flex items-center justify-center text-secondary">No GPU data yet</div>;
     }
 
+    const resolvedChartHeight = Math.max(70, chartHeight ?? (compact ? 90 : 140));
+
     return (
-        <div className="space-y-6">
-            <div className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.3em] text-secondary">
+        <div className={compact ? 'space-y-4' : 'space-y-6'}>
+            <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary ${compact ? 'text-[10px]' : 'text-xs'}`}>
                 {latestSnapshot.map((gpu) => (
                     <div
                         key={`gpu-summary-${gpu.index}`}
@@ -90,7 +98,7 @@ export const GpuCharts = ({ visibleGpuIndices }: { visibleGpuIndices?: number[] 
             </div>
             <div>
                 <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">Utilization (%)</div>
-                <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.3em] text-secondary mb-2">
+                <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary mb-2 ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
                     {visibleGpus.map((gpu, idx) => (
                         <div key={`util-legend-${gpu.index}`} className="flex items-center gap-2">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
@@ -98,8 +106,8 @@ export const GpuCharts = ({ visibleGpuIndices }: { visibleGpuIndices?: number[] 
                         </div>
                     ))}
                 </div>
-                <div className="h-40">
-                <ResponsiveContainer>
+                <div style={{ height: resolvedChartHeight }}>
+                <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                         <XAxis dataKey="time" stroke="#6b7280" hide />
@@ -126,7 +134,7 @@ export const GpuCharts = ({ visibleGpuIndices }: { visibleGpuIndices?: number[] 
 
             <div>
                 <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">VRAM (GB)</div>
-                <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.3em] text-secondary mb-2">
+                <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary mb-2 ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
                     {visibleGpus.map((gpu, idx) => (
                         <div key={`mem-legend-${gpu.index}`} className="flex items-center gap-2">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
@@ -134,8 +142,8 @@ export const GpuCharts = ({ visibleGpuIndices }: { visibleGpuIndices?: number[] 
                         </div>
                     ))}
                 </div>
-                <div className="h-40">
-                <ResponsiveContainer>
+                <div style={{ height: resolvedChartHeight }}>
+                <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                         <XAxis dataKey="time" stroke="#6b7280" hide />
@@ -177,7 +185,7 @@ export const GpuCharts = ({ visibleGpuIndices }: { visibleGpuIndices?: number[] 
 
             <div>
                 <div className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">Temperature (°C)</div>
-                <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.3em] text-secondary mb-2">
+                <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary mb-2 ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
                     {visibleGpus.map((gpu, idx) => (
                         <div key={`temp-legend-${gpu.index}`} className="flex items-center gap-2">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }} />
@@ -185,8 +193,8 @@ export const GpuCharts = ({ visibleGpuIndices }: { visibleGpuIndices?: number[] 
                         </div>
                     ))}
                 </div>
-                <div className="h-40">
-                <ResponsiveContainer>
+                <div style={{ height: resolvedChartHeight }}>
+                <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                         <XAxis dataKey="time" stroke="#6b7280" hide />

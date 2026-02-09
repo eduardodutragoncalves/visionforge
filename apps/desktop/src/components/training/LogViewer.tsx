@@ -11,13 +11,14 @@ export const LogViewer = ({ runId }: { runId: string }) => {
     }, [logs]);
 
     return (
-        <div className="log-viewer glass" style={{
-            height: '300px',
-            overflowY: 'auto',
-            padding: '16px',
-            fontFamily: 'monospace',
-            backgroundColor: 'rgba(0,0,0,0.3)'
-        }}>
+        <div
+            className="log-viewer glass h-full min-h-0 overflow-y-auto"
+            style={{
+                padding: '16px',
+                fontFamily: 'monospace',
+                backgroundColor: 'rgba(0,0,0,0.3)'
+            }}
+        >
             {logs.map((log, i) => (
                 <div key={i} className="log-line" style={{ fontSize: '12px', marginBottom: '4px' }}>
                     <span className="text-secondary">[{log.timestamp}]</span>

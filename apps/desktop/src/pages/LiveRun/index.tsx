@@ -60,9 +60,9 @@ export const LiveRun = () => {
     ].filter((item) => item.value !== undefined && item.value !== null && item.value !== '');
 
     return (
-        <div className="live-run animate-fade-in space-y-6">
+        <div className="live-run animate-fade-in h-full min-h-0 flex flex-col gap-4">
             {visibleRuns.length > 1 && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 shrink-0">
                     {visibleRuns.map((item) => (
                         <button
                             key={`run-tab-${item.runId}`}
@@ -78,7 +78,7 @@ export const LiveRun = () => {
                     ))}
                 </div>
             )}
-            <header className="flex justify-between items-center mb-6">
+            <header className="flex flex-wrap justify-between items-center gap-3">
                 <div>
                     <h2 className="text-2xl font-bold">
                         Training Run <span className="text-accent">{runName || runId?.slice(0, 8)}</span>
@@ -97,7 +97,7 @@ export const LiveRun = () => {
                 </div>
             </header>
             {configItems.length > 0 && (
-                <Card className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.3em] text-secondary">
+                <Card className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.3em] text-secondary shrink-0">
                     {configItems.map((item) => (
                         <div key={`config-${item.label}`} className="border border-graphite-700/70 bg-graphite-900 px-3 py-2 rounded">
                             <span className="text-haze">{item.label}:</span>{' '}
@@ -107,7 +107,7 @@ export const LiveRun = () => {
                 </Card>
             )}
 
-            <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 gap-4 xl:grid-cols-4 shrink-0">
                 <Card>
                     <div className="text-secondary text-sm">Epoch</div>
                     <div className="text-2xl font-mono">{currentEpoch} <span className="text-sm text-secondary">/ {totalEpochs}</span></div>
@@ -126,33 +126,44 @@ export const LiveRun = () => {
                 </Card>
             </div>
 
-            <div className="grid grid-cols-3 gap-6" style={{ height: '400px' }}>
-                <div className="col-span-2">
-                    <Card className="h-full flex flex-col">
-                        <h3 className="mb-4">Loss & Accuracy</h3>
-                        <div className="flex-1">
-                            {runId ? <TrainingChart runId={runId} /> : null}
-                        </div>
-                    </Card>
+            <div
+                className="flex-1 min-h-0 grid gap-4"
+                style={{ gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)' }}
+            >
+                <div className="grid grid-cols-12 gap-4 min-h-0">
+                    <div className="col-span-12 xl:col-span-8 min-h-0">
+                        <Card className="h-full min-h-0 flex flex-col">
+                            <h3 className="mb-3">Loss & Accuracy</h3>
+                            <div className="flex-1 min-h-0">
+                                {runId ? <TrainingChart runId={runId} compact /> : null}
+                            </div>
+                        </Card>
+                    </div>
+                    <div className="col-span-12 xl:col-span-4 min-h-0">
+                        <Card className="h-full min-h-0 flex flex-col">
+                            <h3 className="mb-3">Logs</h3>
+                            <div className="flex-1 min-h-0">
+                                {runId ? <LogViewer runId={runId} /> : null}
+                            </div>
+                        </Card>
+                    </div>
                 </div>
-                <div className="col-span-1">
-                    <Card className="h-full flex flex-col">
-                        <h3 className="mb-4">Logs</h3>
-                        {runId ? <LogViewer runId={runId} /> : null}
-                    </Card>
-                </div>
-            </div>
 
-            <Card className="h-full flex flex-col">
-                <h3 className="mb-4">GPU Usage</h3>
-                <GpuCharts
-                    visibleGpuIndices={
-                        Array.isArray(config.gpu_devices) && config.gpu_devices.length > 0
-                            ? config.gpu_devices.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value))
-                            : undefined
-                    }
-                />
-            </Card>
+                <Card className="h-full min-h-0 flex flex-col">
+                    <h3 className="mb-3">GPU Usage</h3>
+                    <div className="flex-1 min-h-0">
+                        <GpuCharts
+                            compact
+                            chartHeight={90}
+                            visibleGpuIndices={
+                                Array.isArray(config.gpu_devices) && config.gpu_devices.length > 0
+                                    ? config.gpu_devices.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value))
+                                    : undefined
+                            }
+                        />
+                    </div>
+                </Card>
+            </div>
         </div>
     );
 };
