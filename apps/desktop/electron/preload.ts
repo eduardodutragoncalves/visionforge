@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
     openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
     openFiles: () => ipcRenderer.invoke('dialog:openFiles'),
     openVideo: () => ipcRenderer.invoke('dialog:openVideo'),
+    openPath: (targetPath: string) => ipcRenderer.invoke('shell:openPath', targetPath),
+    revealPath: (targetPath: string) => ipcRenderer.invoke('shell:revealPath', targetPath),
     minimize: () => ipcRenderer.invoke('window:minimize'),
     toggleMaximize: () => ipcRenderer.invoke('window:toggle-maximize'),
     close: () => ipcRenderer.invoke('window:close'),

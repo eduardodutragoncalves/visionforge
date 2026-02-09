@@ -10,6 +10,8 @@ declare global {
             openDirectory: () => Promise<string | null>;
             openFiles: () => Promise<string[]>;
             openVideo: () => Promise<string | null>;
+            openPath: (targetPath: string) => Promise<{ ok: boolean; message?: string }>;
+            revealPath: (targetPath: string) => Promise<{ ok: boolean; message?: string }>;
             minimize: () => Promise<void>;
             toggleMaximize: () => Promise<boolean>;
             close: () => Promise<void>;

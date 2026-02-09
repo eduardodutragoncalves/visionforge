@@ -122,6 +122,23 @@ async function handleOpenVideo() {
   }
   return filePaths[0];
 }
+async function handleOpenPath(targetPath) {
+  if (!targetPath || typeof targetPath !== "string") {
+    return { ok: false, message: "Invalid path" };
+  }
+  const result = await electron.shell.openPath(targetPath);
+  if (result) {
+    return { ok: false, message: result };
+  }
+  return { ok: true };
+}
+async function handleRevealPath(targetPath) {
+  if (!targetPath || typeof targetPath !== "string") {
+    return { ok: false, message: "Invalid path" };
+  }
+  electron.shell.showItemInFolder(targetPath);
+  return { ok: true };
+}
 function createWindow() {
   win = new electron.BrowserWindow({
     icon: path.join(PUBLIC, "branding", "ai-brain-icon-256.png"),
@@ -183,6 +200,8 @@ electron.app.whenReady().then(() => {
   electron.ipcMain.handle("dialog:openDirectory", handleOpenDirectory);
   electron.ipcMain.handle("dialog:openFiles", handleOpenFiles);
   electron.ipcMain.handle("dialog:openVideo", handleOpenVideo);
+  electron.ipcMain.handle("shell:openPath", (_event, targetPath) => handleOpenPath(targetPath));
+  electron.ipcMain.handle("shell:revealPath", (_event, targetPath) => handleRevealPath(targetPath));
   electron.ipcMain.handle("window:minimize", () => win?.minimize());
   electron.ipcMain.handle("window:toggle-maximize", () => {
     if (!win) return false;

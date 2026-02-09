@@ -141,6 +141,25 @@ async function handleOpenVideo() {
     return filePaths[0]
 }
 
+async function handleOpenPath(targetPath: string) {
+    if (!targetPath || typeof targetPath !== 'string') {
+        return { ok: false, message: 'Invalid path' }
+    }
+    const result = await shell.openPath(targetPath)
+    if (result) {
+        return { ok: false, message: result }
+    }
+    return { ok: true }
+}
+
+async function handleRevealPath(targetPath: string) {
+    if (!targetPath || typeof targetPath !== 'string') {
+        return { ok: false, message: 'Invalid path' }
+    }
+    shell.showItemInFolder(targetPath)
+    return { ok: true }
+}
+
 function createWindow() {
     win = new BrowserWindow({
         icon: path.join(PUBLIC, 'branding', 'ai-brain-icon-256.png'),
@@ -209,6 +228,8 @@ app.whenReady().then(() => {
     ipcMain.handle('dialog:openDirectory', handleOpenDirectory)
     ipcMain.handle('dialog:openFiles', handleOpenFiles)
     ipcMain.handle('dialog:openVideo', handleOpenVideo)
+    ipcMain.handle('shell:openPath', (_event, targetPath: string) => handleOpenPath(targetPath))
+    ipcMain.handle('shell:revealPath', (_event, targetPath: string) => handleRevealPath(targetPath))
     ipcMain.handle('window:minimize', () => win?.minimize())
     ipcMain.handle('window:toggle-maximize', () => {
         if (!win) return false

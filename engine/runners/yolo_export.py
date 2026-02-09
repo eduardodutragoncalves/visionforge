@@ -143,7 +143,9 @@ def _write_package_metadata(
         "target_id": target_id,
         "target_label": TARGET_LABELS.get(target_id, target_id),
         "format": fmt,
+        "package_dir": str(package_dir),
         "artifact_path": str(artifact_path),
+        "readme_path": str(package_dir / "README.md"),
         "created_at": datetime.now().isoformat(),
         "status": "completed",
     }
@@ -180,10 +182,10 @@ def main():
         if not model_path.exists():
             raise FileNotFoundError(f"Model weights not found at {model_path}")
 
-        emit_event("export/progress", {"message": "Loading model..."})
+        emit_event("export/progress", {"message": "Loading model...", "stage": "init", "progress": 10})
         model = YOLO(str(model_path))
 
-        emit_event("export/progress", {"message": f"Exporting to {fmt}..."})
+        emit_event("export/progress", {"message": f"Exporting to {fmt}...", "stage": "export", "progress": 45})
         start_t = time.time()
         exported_path = model.export(format=fmt, dynamic=True)
         duration = time.time() - start_t
@@ -198,12 +200,15 @@ def main():
         else:
             target_path = final_path
 
+        emit_event("export/progress", {"message": "Preparing deployment package...", "stage": "package", "progress": 70})
         model_filename = target_path.name
         (package_dir / "README.md").write_text(
             _build_readme(args.target_id, model_filename, fmt),
             encoding="utf-8"
         )
+        emit_event("export/progress", {"message": "Writing runtime scripts...", "stage": "scripts", "progress": 85})
         _write_runner_scripts(package_dir, model_filename)
+        emit_event("export/progress", {"message": "Writing manifest...", "stage": "manifest", "progress": 95})
         _write_package_metadata(
             package_dir=package_dir,
             project_id=args.project_id,
@@ -235,4 +240,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

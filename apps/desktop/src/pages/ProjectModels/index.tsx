@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Box, Cpu, HardDriveDownload, XCircle } from 'lucide-react';
+import { Box, CheckCircle2, Cpu, ExternalLink, HardDriveDownload, Loader2, XCircle } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
@@ -29,7 +29,9 @@ interface DeploymentInfo {
     target_id?: string;
     target_label?: string;
     format?: string;
+    package_dir?: string;
     artifact_path?: string;
+    readme_path?: string;
     created_at?: string;
     status?: string;
 }
@@ -57,15 +59,43 @@ type DeployState = {
     targetId: string;
     status: 'queued' | 'running';
     message?: string;
+    stage?: string;
+    progress?: number;
+    startedAt: number;
+};
+
+type DeploymentInspect = {
+    variant: Variant;
+    deployment: DeploymentInfo;
+};
+
+const targetLabel = (targetId?: string) => {
+    if (!targetId) return 'Unknown target';
+    return DEPLOYMENT_TARGETS.find((target) => target.id === targetId)?.label || targetId;
+};
+
+const deriveProgress = (detail: any, fallback: DeployState | undefined): number => {
+    if (typeof detail?.progress === 'number') {
+        return Math.max(0, Math.min(100, detail.progress));
+    }
+    const msg = String(detail?.message || '').toLowerCase();
+    if (msg.includes('loading')) return 15;
+    if (msg.includes('exporting')) return 55;
+    if (msg.includes('package')) return 75;
+    if (msg.includes('script')) return 88;
+    if (msg.includes('manifest')) return 96;
+    return fallback?.progress ?? (fallback?.status === 'queued' ? 5 : 35);
 };
 
 export const ProjectModels = () => {
     const { projectId } = useParams();
     const [variants, setVariants] = useState<Variant[]>([]);
     const [deployModalVariant, setDeployModalVariant] = useState<Variant | null>(null);
+    const [deployInspect, setDeployInspect] = useState<DeploymentInspect | null>(null);
     const [selectedTargetId, setSelectedTargetId] = useState<string>('edge_jetson');
     const [deployingByVariant, setDeployingByVariant] = useState<Record<string, DeployState>>({});
     const [deployNotice, setDeployNotice] = useState<string | null>(null);
+    const [nowTs, setNowTs] = useState<number>(Date.now());
 
     const fetchVariants = useCallback(async () => {
         if (!projectId) return;
@@ -80,6 +110,11 @@ export const ProjectModels = () => {
     }, [fetchVariants]);
 
     useEffect(() => {
+        const timer = window.setInterval(() => setNowTs(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, []);
+
+    useEffect(() => {
         const onStarted = (e: Event) => {
             const detail = (e as CustomEvent).detail || {};
             const variantId = detail.variant_id;
@@ -89,7 +124,10 @@ export const ProjectModels = () => {
                 [variantId]: {
                     targetId: detail.target_id || 'edge_generic',
                     status: 'running',
-                    message: 'Deployment started'
+                    message: 'Deployment started',
+                    stage: detail.stage || 'start',
+                    progress: 12,
+                    startedAt: prev[variantId]?.startedAt || Date.now()
                 }
             }));
         };
@@ -104,7 +142,9 @@ export const ProjectModels = () => {
                     ...prev,
                     [variantId]: {
                         ...current,
-                        message: detail.message || current.message
+                        message: detail.message || current.message,
+                        stage: detail.stage || current.stage,
+                        progress: deriveProgress(detail, current),
                     }
                 };
             });
@@ -118,7 +158,7 @@ export const ProjectModels = () => {
                 delete next[variantId];
                 return next;
             });
-            setDeployNotice(`Deploy concluido para ${variantId} (${detail.target_id || 'target'}).`);
+            setDeployNotice(`Deploy concluido para ${variantId} (${targetLabel(detail.target_id)}).`);
             fetchVariants();
         };
         const onFailed = (e: Event) => {
@@ -160,7 +200,10 @@ export const ProjectModels = () => {
             [variantId]: {
                 targetId: selectedTargetId,
                 status: 'queued',
-                message: 'Queued'
+                message: 'Queued',
+                stage: 'queue',
+                progress: 5,
+                startedAt: Date.now()
             }
         }));
         setDeployModalVariant(null);
@@ -186,6 +229,11 @@ export const ProjectModels = () => {
         DEPLOYMENT_TARGETS.filter((target) => target.category === category)
             .map((target) => ({ value: target.id, label: target.label }));
 
+    const activeDeployEntries = useMemo(
+        () => Object.entries(deployingByVariant),
+        [deployingByVariant]
+    );
+
     return (
         <div className="project-models animate-fade-in space-y-6">
             <header className="flex justify-between items-center mb-6">
@@ -203,6 +251,34 @@ export const ProjectModels = () => {
                             <XCircle size={14} className="mr-1" />
                             Close
                         </Button>
+                    </div>
+                </Card>
+            )}
+
+            {activeDeployEntries.length > 0 && (
+                <Card className="border border-accent-warning/50 bg-accent-warning/10">
+                    <div className="text-xs uppercase tracking-[0.28em] text-accent-warning mb-2">Deploy progress</div>
+                    <div className="space-y-3">
+                        {activeDeployEntries.map(([variantId, state]) => {
+                            const elapsedSec = Math.max(0, Math.floor((nowTs - state.startedAt) / 1000));
+                            const progress = Math.max(3, Math.min(97, state.progress ?? 0));
+                            return (
+                                <div key={`deploying-${variantId}`} className="rounded border border-accent-warning/40 bg-graphite-900/40 px-3 py-2">
+                                    <div className="flex items-center justify-between gap-2 text-xs">
+                                        <div className="flex items-center gap-2">
+                                            <Loader2 size={12} className="animate-spin" />
+                                            <span>{variantId}</span>
+                                            <span className="text-secondary">→ {targetLabel(state.targetId)}</span>
+                                        </div>
+                                        <div className="text-secondary">{elapsedSec}s</div>
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-secondary">{state.message || state.status}</div>
+                                    <div className="mt-2 h-1.5 rounded bg-graphite-700 overflow-hidden">
+                                        <div className="h-full bg-accent-warning transition-all duration-500" style={{ width: `${progress}%` }} />
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </Card>
             )}
@@ -246,22 +322,48 @@ export const ProjectModels = () => {
                                     <span>{(variant.metrics.loss || 0).toFixed(4)}</span>
                                 </div>
                                 <div className="text-xs text-secondary uppercase tracking-[0.24em] mt-2">Deploy Targets</div>
-                                {deployedTargets.length === 0 ? (
+                                {deployments.length === 0 ? (
                                     <div className="text-xs text-secondary">No deployments generated yet.</div>
                                 ) : (
                                     <div className="flex flex-wrap gap-2">
-                                        {deployedTargets.map((targetId) => (
-                                            <span key={`${variant.id}-${targetId}`} className="stat-chip">
-                                                {targetId}
-                                            </span>
-                                        ))}
+                                        {deployedTargets.map((targetId) => {
+                                            const latest = [...deployments]
+                                                .filter((deployment) => deployment.target_id === targetId)
+                                                .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+                                            return (
+                                                <button
+                                                    key={`${variant.id}-${targetId}`}
+                                                    type="button"
+                                                    className="tab-button tab-button-active"
+                                                    onClick={() => {
+                                                        if (latest) setDeployInspect({ variant, deployment: latest });
+                                                    }}
+                                                    title="Open deployment details"
+                                                >
+                                                    {targetLabel(targetId)}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>
 
                             {activeDeploy && (
                                 <div className="mb-4 rounded border border-accent-warning/50 bg-accent-warning/10 px-3 py-2 text-xs text-accent-warning">
-                                    Deploying to <strong>{activeDeploy.targetId}</strong> · {activeDeploy.message || activeDeploy.status}
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="inline-flex items-center gap-2">
+                                            <Loader2 size={12} className="animate-spin" />
+                                            Deploying to <strong>{targetLabel(activeDeploy.targetId)}</strong>
+                                        </span>
+                                        <span>{Math.max(3, Math.min(97, activeDeploy.progress ?? 0))}%</span>
+                                    </div>
+                                    <div className="mt-1 text-[11px]">{activeDeploy.message || activeDeploy.status}</div>
+                                    <div className="mt-2 h-1.5 rounded bg-graphite-800 overflow-hidden">
+                                        <div
+                                            className="h-full bg-accent-warning transition-all duration-500"
+                                            style={{ width: `${Math.max(3, Math.min(97, activeDeploy.progress ?? 0))}%` }}
+                                        />
+                                    </div>
                                 </div>
                             )}
 
@@ -335,6 +437,76 @@ export const ProjectModels = () => {
                             <Button variant="primary" onClick={handleDeploy}>
                                 <HardDriveDownload size={14} className="mr-1" />
                                 Generate Deployment Package
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {deployInspect && (
+                <div className="modal-backdrop">
+                    <div className="modal-card max-w-2xl">
+                        <div className="modal-header mb-4">
+                            <div>
+                                <h3 className="text-xl font-semibold">Deployment Artifacts</h3>
+                                <p className="text-secondary text-sm mt-1">
+                                    {deployInspect.variant.name} · {targetLabel(deployInspect.deployment.target_id)}
+                                </p>
+                            </div>
+                            <Button size="sm" variant="ghost" onClick={() => setDeployInspect(null)}>
+                                <XCircle size={14} className="mr-1" />
+                                Close
+                            </Button>
+                        </div>
+                        <div className="space-y-3 text-sm">
+                            <div className="rounded border border-graphite-700/70 bg-graphite-900 px-3 py-2">
+                                <div className="text-xs uppercase tracking-[0.24em] text-secondary">Status</div>
+                                <div className="mt-1 inline-flex items-center gap-2">
+                                    <CheckCircle2 size={14} className="text-success" />
+                                    <span>{deployInspect.deployment.status || 'completed'}</span>
+                                </div>
+                            </div>
+                            <div className="rounded border border-graphite-700/70 bg-graphite-900 px-3 py-2">
+                                <div className="text-xs uppercase tracking-[0.24em] text-secondary">Format</div>
+                                <div className="mt-1">{deployInspect.deployment.format || 'onnx'}</div>
+                            </div>
+                            <div className="rounded border border-graphite-700/70 bg-graphite-900 px-3 py-2">
+                                <div className="text-xs uppercase tracking-[0.24em] text-secondary">Artifact Path</div>
+                                <div className="mt-1 font-mono text-xs break-all">{deployInspect.deployment.artifact_path || 'Not available'}</div>
+                            </div>
+                            <div className="rounded border border-graphite-700/70 bg-graphite-900 px-3 py-2">
+                                <div className="text-xs uppercase tracking-[0.24em] text-secondary">Package Folder</div>
+                                <div className="mt-1 font-mono text-xs break-all">{deployInspect.deployment.package_dir || 'Not available'}</div>
+                            </div>
+                        </div>
+                        <div className="mt-5 flex flex-wrap justify-end gap-2">
+                            <Button
+                                variant="ghost"
+                                onClick={async () => {
+                                    const artifact = deployInspect.deployment.artifact_path;
+                                    if (!artifact) return;
+                                    const result = await window.ipcRenderer?.revealPath?.(artifact);
+                                    if (result?.ok === false) {
+                                        setDeployNotice(`Nao foi possivel abrir artefato: ${result.message || 'unknown error'}`);
+                                    }
+                                }}
+                            >
+                                <ExternalLink size={14} className="mr-1" />
+                                Reveal Artifact
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                onClick={async () => {
+                                    const pkg = deployInspect.deployment.package_dir;
+                                    if (!pkg) return;
+                                    const result = await window.ipcRenderer?.openPath?.(pkg);
+                                    if (result?.ok === false) {
+                                        setDeployNotice(`Nao foi possivel abrir pasta: ${result.message || 'unknown error'}`);
+                                    }
+                                }}
+                            >
+                                <ExternalLink size={14} className="mr-1" />
+                                Open Package Folder
                             </Button>
                         </div>
                     </div>
