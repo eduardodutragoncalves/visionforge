@@ -234,7 +234,7 @@ export const TrainSetup = () => {
     };
 
     return (
-        <div className="train-setup animate-fade-in max-w-4xl mx-auto space-y-6 pb-20">
+        <div className="train-setup animate-fade-in w-full max-w-none space-y-6 pb-20">
             <header className="mb-8">
                 <h2 className="text-3xl font-bold">Training Configuration</h2>
                 <p className="text-secondary">Setup experiment hyperparameters for {projectId}</p>
