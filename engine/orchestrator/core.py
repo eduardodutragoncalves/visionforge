@@ -10,6 +10,7 @@ from datetime import datetime
 from engine.core.events import manager
 from engine.io import paths, manifests
 from engine.orchestrator.post_processor import handle_training_completion
+from engine.orchestrator.runtimes import RuntimeBuilder
 from engine.services.gpu_stats import get_gpu_stats
 
 logger = logging.getLogger("VisionForge.Orchestrator")
@@ -56,12 +57,13 @@ class Orchestrator:
 
     async def submit_job(self, project_id: str, run_id: str, config: dict):
         """Adds a job to the queue and updates status"""
-        
-        # Ensure run directory and set status to 'queued'
-        run_dir = os.path.join(self.workspace_root, "projects", project_id, "runs", run_id)
-        os.makedirs(run_dir, exist_ok=True)
-        run_json = os.path.join(run_dir, "run.json")
-        self._update_run_status(run_json, "queued")
+        job_type = (config or {}).get("type", "train")
+        if job_type != "export":
+            # Ensure run directory and set status to 'queued'
+            run_dir = os.path.join(self.workspace_root, "projects", project_id, "runs", run_id)
+            os.makedirs(run_dir, exist_ok=True)
+            run_json = os.path.join(run_dir, "run.json")
+            self._update_run_status(run_json, "queued")
 
         job = {
             "project_id": project_id,
@@ -110,6 +112,11 @@ class Orchestrator:
         project_id = job["project_id"]
         run_id = job["run_id"]
         config = job["config"]
+        job_type = config.get("type", "train")
+        if job_type == "export":
+            await self._run_export_job(project_id, run_id, config)
+            return
+
         framework = config.get("framework", "dummy")
         
         logger.info(f"Starting job {run_id} ({framework})")
@@ -149,8 +156,6 @@ class Orchestrator:
         script_path = ""
         script_args = []
         
-        from engine.orchestrator.runtimes import RuntimeBuilder
-
         if framework == "ultralytics":
              script_path = os.path.join(os.path.dirname(__file__), "../runners/yolo_train.py")
              
@@ -382,6 +387,144 @@ class Orchestrator:
                     "error": f"exit_code={exit_code}"
                 })
                 await manager.broadcast("train/failed", {"run_id": run_id, "exit_code": exit_code})
+
+    async def _run_export_job(self, project_id: str, run_id: str, config: Dict):
+        variant_id = config.get("variant_id")
+        target_id = config.get("target_id", "edge_generic")
+        export_format = config.get("format", "onnx")
+        runtime = config.get("runtime", "local")
+        runtime_config = config.get("runtime_config", {}) or {}
+
+        if not variant_id:
+            await manager.broadcast("export/failed", {
+                "run_id": run_id,
+                "project_id": project_id,
+                "error": "Missing variant_id"
+            })
+            return
+
+        variant_dir = paths.get_variant_dir(project_id, variant_id)
+        model_path = variant_dir / "model.pt"
+        if not variant_dir.exists() or not model_path.exists():
+            await manager.broadcast("export/failed", {
+                "run_id": run_id,
+                "project_id": project_id,
+                "variant_id": variant_id,
+                "target_id": target_id,
+                "error": f"Variant/model not found: {variant_dir}"
+            })
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        package_dir = variant_dir / "deploy" / target_id / f"pkg_{timestamp}"
+        artifacts_dir = package_dir / "artifacts"
+        logs_path = package_dir / "export.log"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        script_path = os.path.join(os.path.dirname(__file__), "../runners/yolo_export.py")
+        script_args = [
+            "--variant-path", str(variant_dir),
+            "--variant-id", variant_id,
+            "--project-id", project_id,
+            "--target-id", target_id,
+            "--format", export_format,
+            "--output-dir", str(artifacts_dir),
+            "--package-dir", str(package_dir)
+        ]
+
+        try:
+            cmd, cwd, env = RuntimeBuilder.build_command(
+                runtime,
+                runtime_config,
+                os.path.abspath(script_path),
+                script_args,
+                self.workspace_root
+            )
+        except Exception as e:
+            await manager.broadcast("export/failed", {
+                "run_id": run_id,
+                "project_id": project_id,
+                "variant_id": variant_id,
+                "target_id": target_id,
+                "error": f"Runtime Error: {e}"
+            })
+            return
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd
+        )
+
+        with open(logs_path, "a") as f_log:
+            async def read_stream(stream, is_stderr=False):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    decoded_line = line.decode("utf-8", errors="replace").strip()
+                    if not decoded_line:
+                        continue
+
+                    f_log.write(f"[{datetime.now().isoformat()}] {decoded_line}\n")
+                    f_log.flush()
+
+                    if decoded_line.startswith("VF_EVENT:"):
+                        try:
+                            json_str = decoded_line[len("VF_EVENT:"):].strip()
+                            event_data = json.loads(json_str)
+                            event_type = event_data.get("type")
+                            payload = event_data.get("payload") or {}
+                            if isinstance(payload, dict):
+                                payload.setdefault("run_id", run_id)
+                                payload.setdefault("project_id", project_id)
+                                payload.setdefault("variant_id", variant_id)
+                                payload.setdefault("target_id", target_id)
+                            await manager.broadcast(event_type, payload)
+                        except json.JSONDecodeError:
+                            logger.error(f"Failed to parse export event: {decoded_line}")
+                        continue
+
+                    await manager.broadcast("export/progress", {
+                        "run_id": run_id,
+                        "project_id": project_id,
+                        "variant_id": variant_id,
+                        "target_id": target_id,
+                        "message": decoded_line,
+                        "level": "ERROR" if is_stderr else "INFO"
+                    })
+
+            await asyncio.gather(
+                read_stream(process.stdout),
+                read_stream(process.stderr, is_stderr=True)
+            )
+
+        exit_code = await process.wait()
+        if exit_code != 0:
+            await manager.broadcast("export/failed", {
+                "run_id": run_id,
+                "project_id": project_id,
+                "variant_id": variant_id,
+                "target_id": target_id,
+                "error": f"exit_code={exit_code}"
+            })
+            return
+
+        deployment_manifest_path = package_dir / "manifest.json"
+        if not deployment_manifest_path.exists():
+            artifact_path = artifacts_dir / f"model.{export_format}"
+            deployment_manifest = {
+                "id": f"deploy_{timestamp}",
+                "project_id": project_id,
+                "variant_id": variant_id,
+                "target_id": target_id,
+                "format": export_format,
+                "artifact_path": str(artifact_path),
+                "created_at": datetime.now().isoformat(),
+                "status": "completed"
+            }
+            manifests.save_manifest(deployment_manifest_path, deployment_manifest, "deployment")
 
     def _update_run_status(self, file_path: str, status: str, updates: Optional[Dict] = None):
         if os.path.exists(file_path):

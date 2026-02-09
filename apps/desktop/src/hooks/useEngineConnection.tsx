@@ -67,8 +67,14 @@ export const useEngineConnection = () => {
                         if (msg.data?.run_id) {
                             setStatus(msg.data.run_id, 'failed');
                         }
+                    } else if (msg.event === 'export/started') {
+                        window.dispatchEvent(new CustomEvent('vf-export-started', { detail: msg.data }));
+                    } else if (msg.event === 'export/progress') {
+                        window.dispatchEvent(new CustomEvent('vf-export-progress', { detail: msg.data }));
                     } else if (msg.event === 'export/completed') {
                         window.dispatchEvent(new CustomEvent('vf-export-completed', { detail: msg.data }));
+                    } else if (msg.event === 'export/failed') {
+                        window.dispatchEvent(new CustomEvent('vf-export-failed', { detail: msg.data }));
                     }
                 } catch (e) {
                     console.error("Failed to parse WS msg", event.data);
