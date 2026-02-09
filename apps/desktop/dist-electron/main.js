@@ -124,7 +124,7 @@ async function handleOpenVideo() {
 }
 function createWindow() {
   win = new electron.BrowserWindow({
-    icon: path.join(PUBLIC, "electron-vite.svg"),
+    icon: path.join(PUBLIC, "branding", "ai-brain-icon-256.png"),
     width: 1200,
     height: 800,
     frame: false,
