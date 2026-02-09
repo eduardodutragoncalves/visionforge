@@ -160,6 +160,27 @@ async function handleRevealPath(targetPath: string) {
     return { ok: true }
 }
 
+async function handleReadTextFile(targetPath: string) {
+    if (!targetPath || typeof targetPath !== 'string') {
+        return { ok: false, message: 'Invalid path' }
+    }
+    try {
+        const resolved = path.resolve(targetPath)
+        const stats = await fs.promises.stat(resolved)
+        if (!stats.isFile()) {
+            return { ok: false, message: 'Path is not a file' }
+        }
+        if (stats.size > 2 * 1024 * 1024) {
+            return { ok: false, message: 'File too large to preview in app' }
+        }
+        const content = await fs.promises.readFile(resolved, 'utf-8')
+        return { ok: true, content }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { ok: false, message }
+    }
+}
+
 function createWindow() {
     win = new BrowserWindow({
         icon: path.join(PUBLIC, 'branding', 'ai-brain-icon-256.png'),
@@ -230,6 +251,7 @@ app.whenReady().then(() => {
     ipcMain.handle('dialog:openVideo', handleOpenVideo)
     ipcMain.handle('shell:openPath', (_event, targetPath: string) => handleOpenPath(targetPath))
     ipcMain.handle('shell:revealPath', (_event, targetPath: string) => handleRevealPath(targetPath))
+    ipcMain.handle('fs:readTextFile', (_event, targetPath: string) => handleReadTextFile(targetPath))
     ipcMain.handle('window:minimize', () => win?.minimize())
     ipcMain.handle('window:toggle-maximize', () => {
         if (!win) return false

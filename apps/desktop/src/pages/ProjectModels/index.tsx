@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
     Activity,
     Box,
+    ClipboardList,
     CheckCircle2,
     Clock3,
     Cpu,
     ExternalLink,
+    FileText,
     HardDriveDownload,
     LayoutGrid,
     Loader2,
@@ -98,6 +100,13 @@ type DeploymentInspect = {
     deployment: DeploymentInfo;
 };
 
+type ReadmeInspect = {
+    title: string;
+    targetLabel: string;
+    path: string;
+    content: string;
+};
+
 interface SummaryMetricCardProps {
     title: string;
     value: string;
@@ -156,6 +165,173 @@ const normalizedValidation = (validation?: ValidationSummary) => {
     };
 };
 
+const renderInlineMarkdown = (text: string, keyPrefix: string): ReactNode[] => {
+    const parts = text.split(/(`[^`]+`)/g);
+    return parts.map((part, idx) => {
+        const key = `${keyPrefix}-${idx}`;
+        if (part.startsWith('`') && part.endsWith('`')) {
+            return (
+                <code key={key} className="rounded border border-graphite-700/80 bg-graphite-900 px-1.5 py-0.5 font-mono text-[11px] text-accent-primary">
+                    {part.slice(1, -1)}
+                </code>
+            );
+        }
+        return <span key={key}>{part}</span>;
+    });
+};
+
+const renderReadmeMarkdown = (markdown: string): ReactNode[] => {
+    const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+    const nodes: ReactNode[] = [];
+    let paragraph: string[] = [];
+    let listItems: string[] = [];
+    let listType: 'ul' | 'ol' | null = null;
+    let codeBlock: string[] = [];
+    let inCodeBlock = false;
+    let seq = 0;
+
+    const flushParagraph = () => {
+        if (paragraph.length === 0) return;
+        const text = paragraph.join(' ').trim();
+        if (!text) {
+            paragraph = [];
+            return;
+        }
+        seq += 1;
+        nodes.push(
+            <p key={`p-${seq}`} className="text-sm leading-6 text-bone">
+                {renderInlineMarkdown(text, `p-${seq}`)}
+            </p>
+        );
+        paragraph = [];
+    };
+
+    const flushList = () => {
+        if (listItems.length === 0 || !listType) return;
+        seq += 1;
+        if (listType === 'ul') {
+            nodes.push(
+                <ul key={`ul-${seq}`} className="list-disc space-y-1 pl-5 text-sm text-bone">
+                    {listItems.map((item, idx) => (
+                        <li key={`ul-${seq}-${idx}`}>{renderInlineMarkdown(item, `ul-${seq}-${idx}`)}</li>
+                    ))}
+                </ul>
+            );
+        } else {
+            nodes.push(
+                <ol key={`ol-${seq}`} className="list-decimal space-y-1 pl-5 text-sm text-bone">
+                    {listItems.map((item, idx) => (
+                        <li key={`ol-${seq}-${idx}`}>{renderInlineMarkdown(item, `ol-${seq}-${idx}`)}</li>
+                    ))}
+                </ol>
+            );
+        }
+        listItems = [];
+        listType = null;
+    };
+
+    const flushCode = () => {
+        if (codeBlock.length === 0) return;
+        seq += 1;
+        nodes.push(
+            <pre key={`code-${seq}`} className="overflow-x-auto rounded-lg border border-graphite-700/70 bg-graphite-950 p-3 font-mono text-xs leading-5 text-accent-primary">
+                <code>{codeBlock.join('\n')}</code>
+            </pre>
+        );
+        codeBlock = [];
+    };
+
+    for (const rawLine of lines) {
+        const line = rawLine ?? '';
+        const trimmed = line.trim();
+
+        if (trimmed.startsWith('```')) {
+            flushParagraph();
+            flushList();
+            if (inCodeBlock) {
+                flushCode();
+                inCodeBlock = false;
+            } else {
+                inCodeBlock = true;
+                codeBlock = [];
+            }
+            continue;
+        }
+
+        if (inCodeBlock) {
+            codeBlock.push(line);
+            continue;
+        }
+
+        if (!trimmed) {
+            flushParagraph();
+            flushList();
+            continue;
+        }
+
+        const headingMatch = /^#{1,3}\s+(.+)$/.exec(trimmed);
+        if (headingMatch) {
+            flushParagraph();
+            flushList();
+            seq += 1;
+            const level = trimmed.match(/^#+/)?.[0].length || 1;
+            const text = headingMatch[1].trim();
+            if (level === 1) {
+                nodes.push(
+                    <h1 key={`h1-${seq}`} className="text-2xl font-semibold text-bone">
+                        {renderInlineMarkdown(text, `h1-${seq}`)}
+                    </h1>
+                );
+            } else if (level === 2) {
+                nodes.push(
+                    <h2 key={`h2-${seq}`} className="text-lg font-semibold uppercase tracking-[0.18em] text-accent-primary">
+                        {renderInlineMarkdown(text, `h2-${seq}`)}
+                    </h2>
+                );
+            } else {
+                nodes.push(
+                    <h3 key={`h3-${seq}`} className="text-base font-semibold text-bone">
+                        {renderInlineMarkdown(text, `h3-${seq}`)}
+                    </h3>
+                );
+            }
+            continue;
+        }
+
+        const orderedMatch = /^\d+\.\s+(.+)$/.exec(trimmed);
+        if (orderedMatch) {
+            flushParagraph();
+            if (listType && listType !== 'ol') flushList();
+            listType = 'ol';
+            listItems.push(orderedMatch[1]);
+            continue;
+        }
+
+        const unorderedMatch = /^[-*]\s+(.+)$/.exec(trimmed);
+        if (unorderedMatch) {
+            flushParagraph();
+            if (listType && listType !== 'ul') flushList();
+            listType = 'ul';
+            listItems.push(unorderedMatch[1]);
+            continue;
+        }
+
+        if (listType) {
+            flushList();
+        }
+        paragraph.push(trimmed);
+    }
+
+    flushParagraph();
+    flushList();
+    flushCode();
+
+    if (nodes.length === 0) {
+        return [<p key="empty-readme" className="text-sm text-secondary">README vazio.</p>];
+    }
+    return nodes;
+};
+
 const deriveProgress = (detail: any, fallback: DeployState | undefined): number => {
     if (typeof detail?.progress === 'number') {
         return Math.max(0, Math.min(100, detail.progress));
@@ -196,9 +372,11 @@ export const ProjectModels = () => {
     const [variants, setVariants] = useState<Variant[]>([]);
     const [deployModalVariant, setDeployModalVariant] = useState<Variant | null>(null);
     const [deployInspect, setDeployInspect] = useState<DeploymentInspect | null>(null);
+    const [readmeInspect, setReadmeInspect] = useState<ReadmeInspect | null>(null);
     const [selectedTargetId, setSelectedTargetId] = useState<string>('edge_jetson');
     const [deployingByVariant, setDeployingByVariant] = useState<Record<string, DeployState>>({});
     const [deployNotice, setDeployNotice] = useState<string | null>(null);
+    const [readmeLoading, setReadmeLoading] = useState(false);
     const [nowTs, setNowTs] = useState<number>(Date.now());
 
     const fetchVariants = useCallback(async () => {
@@ -398,6 +576,35 @@ export const ProjectModels = () => {
         () => DEPLOYMENT_TARGETS.filter((target) => target.category === 'desktop'),
         []
     );
+
+    const openReadmePreview = useCallback(async (variant: Variant, deployment: DeploymentInfo) => {
+        const readmePath = deployment.readme_path;
+        if (!readmePath) {
+            setDeployNotice('README nao encontrado para este deploy.');
+            return;
+        }
+        const reader = window.ipcRenderer?.readTextFile;
+        if (!reader) {
+            setDeployNotice('Leitura local indisponivel nesta sessao.');
+            return;
+        }
+        setReadmeLoading(true);
+        try {
+            const result = await reader(readmePath);
+            if (!result?.ok || typeof result.content !== 'string') {
+                setDeployNotice(`Nao foi possivel abrir README: ${result?.message || 'erro desconhecido'}`);
+                return;
+            }
+            setReadmeInspect({
+                title: variant.name,
+                targetLabel: targetLabel(deployment.target_id),
+                path: readmePath,
+                content: result.content
+            });
+        } finally {
+            setReadmeLoading(false);
+        }
+    }, []);
 
     return (
         <div className="project-models animate-fade-in w-full max-w-none space-y-6 pb-12">
@@ -827,6 +1034,18 @@ export const ProjectModels = () => {
 
                         <div className="mt-5 flex flex-wrap justify-end gap-2">
                             <Button
+                                variant="secondary"
+                                onClick={() => openReadmePreview(deployInspect.variant, deployInspect.deployment)}
+                                disabled={readmeLoading || !deployInspect.deployment.readme_path}
+                            >
+                                {readmeLoading ? (
+                                    <Loader2 size={14} className="mr-1 animate-spin" />
+                                ) : (
+                                    <FileText size={14} className="mr-1" />
+                                )}
+                                Open Readme
+                            </Button>
+                            <Button
                                 variant="ghost"
                                 onClick={async () => {
                                     const artifact = deployInspect.deployment.artifact_path;
@@ -853,6 +1072,57 @@ export const ProjectModels = () => {
                             >
                                 <ExternalLink size={14} className="mr-1" />
                                 Open Package Folder
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {readmeInspect && (
+                <div className="modal-backdrop">
+                    <div className="modal-card max-w-4xl">
+                        <div className="modal-header mb-4">
+                            <div>
+                                <h3 className="text-2xl font-semibold">Deployment Guide</h3>
+                                <p className="mt-1 text-sm text-secondary">
+                                    {readmeInspect.title} · {readmeInspect.targetLabel}
+                                </p>
+                                <p className="mt-1 break-all font-mono text-[11px] text-secondary">{readmeInspect.path}</p>
+                            </div>
+                            <Button size="sm" variant="ghost" onClick={() => setReadmeInspect(null)}>
+                                <XCircle size={14} className="mr-1" />
+                                Close
+                            </Button>
+                        </div>
+
+                        <Card className="max-h-[70vh] overflow-y-auto border border-graphite-700/70 bg-graphite-900/70">
+                            <div className="mb-3 flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-secondary">
+                                <ClipboardList size={13} />
+                                Step-by-step instructions
+                            </div>
+                            <div className="space-y-3">
+                                {renderReadmeMarkdown(readmeInspect.content)}
+                            </div>
+                        </Card>
+
+                        <div className="mt-4 flex justify-end gap-2">
+                            <Button
+                                variant="ghost"
+                                onClick={async () => {
+                                    const result = await window.ipcRenderer?.revealPath?.(readmeInspect.path);
+                                    if (result?.ok === false) {
+                                        setDeployNotice(`Nao foi possivel abrir README: ${result.message || 'unknown error'}`);
+                                    }
+                                }}
+                            >
+                                <ExternalLink size={14} className="mr-1" />
+                                Reveal File
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                onClick={() => setReadmeInspect(null)}
+                            >
+                                Fechar Guia
                             </Button>
                         </div>
                     </div>
