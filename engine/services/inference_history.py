@@ -11,6 +11,20 @@ logger = logging.getLogger("VisionForge.InferenceHistory")
 
 
 class InferenceHistoryService:
+    def _empty_validation_stats(self, total_images: int) -> Dict[str, Any]:
+        return {
+            "total_images": total_images,
+            "tested_images": 0,
+            "untested_images": total_images,
+            "coverage_pct": 0.0,
+            "correct": 0,
+            "incorrect": 0,
+            "pending": 0,
+            "labeled": 0,
+            "accuracy_pct": None,
+            "last_tested_at": None
+        }
+
     def _history_path(self, project_id: str) -> Path:
         return paths.get_project_inference_history_path(project_id)
 
@@ -33,6 +47,46 @@ class InferenceHistoryService:
         history = self._load_history(project_id)
         items = history.get("items", [])
         return sorted(items, key=lambda item: item.get("last_tested_at", ""), reverse=True)
+
+    def summarize_validation_by_variant(self, project_id: str) -> Dict[str, Any]:
+        history = self._load_history(project_id)
+        items = history.get("items", [])
+        total_images = len(items)
+
+        summary: Dict[str, Dict[str, Any]] = {}
+        for item in items:
+            variants = item.get("variants") or {}
+            for variant_id, variant_data in variants.items():
+                if not variant_id:
+                    continue
+                stats = summary.setdefault(variant_id, self._empty_validation_stats(total_images))
+                stats["tested_images"] += 1
+                tested_at = variant_data.get("tested_at")
+                if tested_at:
+                    if not stats["last_tested_at"] or str(tested_at) > str(stats["last_tested_at"]):
+                        stats["last_tested_at"] = tested_at
+
+                feedback = variant_data.get("feedback")
+                if feedback == "correct":
+                    stats["correct"] += 1
+                elif feedback == "incorrect":
+                    stats["incorrect"] += 1
+                else:
+                    stats["pending"] += 1
+
+        for stats in summary.values():
+            stats["untested_images"] = max(0, total_images - stats["tested_images"])
+            stats["labeled"] = stats["correct"] + stats["incorrect"]
+            stats["coverage_pct"] = (stats["tested_images"] / total_images * 100.0) if total_images > 0 else 0.0
+            if stats["labeled"] > 0:
+                stats["accuracy_pct"] = stats["correct"] / stats["labeled"] * 100.0
+            else:
+                stats["accuracy_pct"] = None
+
+        return {
+            "total_images": total_images,
+            "by_variant": summary
+        }
 
     def _hash_image(self, image_bytes: bytes) -> str:
         return hashlib.sha1(image_bytes).hexdigest()[:12]

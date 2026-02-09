@@ -37,12 +37,38 @@ interface RunHistoryItem {
 }
 
 interface VariantSummary {
+    id?: string;
     run_id?: string;
     onnx_exported?: boolean;
     exports?: {
         onnx?: boolean;
         onnx_path?: string | null;
     };
+    validation?: {
+        total_images?: number;
+        tested_images?: number;
+        untested_images?: number;
+        coverage_pct?: number;
+        correct?: number;
+        incorrect?: number;
+        pending?: number;
+        labeled?: number;
+        accuracy_pct?: number | null;
+        last_tested_at?: string | null;
+    };
+}
+
+interface ValidationSummary {
+    total_images: number;
+    tested_images: number;
+    untested_images: number;
+    coverage_pct: number;
+    correct: number;
+    incorrect: number;
+    pending: number;
+    labeled: number;
+    accuracy_pct: number | null;
+    last_tested_at: string | null;
 }
 
 const isInProgressStatus = (status?: string) => {
@@ -56,6 +82,34 @@ const getRunStatusMeta = (status?: string): { label: string; pill: StatusType; i
     if (normalized === 'failed' || normalized === 'error') return { label: 'Falhou', pill: 'error', icon: AlertTriangle };
     if (isInProgressStatus(normalized)) return { label: 'Em progresso', pill: 'running', icon: Clock3 };
     return { label: normalized || 'Desconhecido', pill: 'idle', icon: Activity };
+};
+
+const normalizeValidation = (validation?: VariantSummary['validation']): ValidationSummary => {
+    const total_images = Math.max(0, Number(validation?.total_images || 0));
+    const tested_images = Math.max(0, Number(validation?.tested_images || 0));
+    const correct = Math.max(0, Number(validation?.correct || 0));
+    const incorrect = Math.max(0, Number(validation?.incorrect || 0));
+    const pending = Math.max(0, Number(validation?.pending || 0));
+    const labeled = Math.max(0, Number(validation?.labeled || correct + incorrect));
+    const inferredCoverage = total_images > 0 ? (tested_images / total_images) * 100 : 0;
+    const coverage_pct = typeof validation?.coverage_pct === 'number' ? validation.coverage_pct : inferredCoverage;
+    return {
+        total_images,
+        tested_images,
+        untested_images: Math.max(0, Number(validation?.untested_images ?? (total_images - tested_images))),
+        coverage_pct: Math.max(0, Math.min(100, coverage_pct)),
+        correct,
+        incorrect,
+        pending,
+        labeled,
+        accuracy_pct: typeof validation?.accuracy_pct === 'number' ? validation.accuracy_pct : null,
+        last_tested_at: validation?.last_tested_at ?? null
+    };
+};
+
+const formatPct = (value?: number | null, digits = 1) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '—';
+    return `${value.toFixed(digits)}%`;
 };
 
 export const TrainSetup = () => {
@@ -87,6 +141,7 @@ export const TrainSetup = () => {
     const [gpuSelection, setGpuSelection] = useState<'gpu0' | 'gpu1' | 'dual'>('gpu0');
     const [runHistory, setRunHistory] = useState<RunHistoryItem[]>([]);
     const [runOnnxMap, setRunOnnxMap] = useState<Record<string, boolean>>({});
+    const [runValidationMap, setRunValidationMap] = useState<Record<string, ValidationSummary>>({});
     const [historyLoading, setHistoryLoading] = useState(false);
     const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
     const [splitTrainPct, setSplitTrainPct] = useState(80);
@@ -144,6 +199,7 @@ export const TrainSetup = () => {
             const runsData = runsRes.ok ? await runsRes.json() : [];
             const variantsData: VariantSummary[] = variantsRes.ok ? await variantsRes.json() : [];
             const onnxByRun: Record<string, boolean> = {};
+            const validationByRun: Record<string, ValidationSummary> = {};
 
             variantsData.forEach((variant) => {
                 const runId = variant?.run_id;
@@ -151,12 +207,27 @@ export const TrainSetup = () => {
                 if (runId && hasOnnx) {
                     onnxByRun[runId] = true;
                 }
+                if (runId) {
+                    const candidate = normalizeValidation(variant.validation);
+                    const existing = validationByRun[runId];
+                    if (!existing) {
+                        validationByRun[runId] = candidate;
+                    } else {
+                        const existingScore = existing.labeled * 1000 + existing.tested_images;
+                        const candidateScore = candidate.labeled * 1000 + candidate.tested_images;
+                        if (candidateScore > existingScore) {
+                            validationByRun[runId] = candidate;
+                        }
+                    }
+                }
             });
 
             setRunOnnxMap(onnxByRun);
+            setRunValidationMap(validationByRun);
             setRunHistory(Array.isArray(runsData) ? runsData : []);
         } catch {
             setRunOnnxMap({});
+            setRunValidationMap({});
             setRunHistory([]);
         } finally {
             setHistoryLoading(false);
@@ -190,6 +261,7 @@ export const TrainSetup = () => {
     const runningRuns = runHistory.filter((run) => isInProgressStatus(run.status)).length;
     const completedRuns = runHistory.filter((run) => String(run.status || '').toLowerCase() === 'completed').length;
     const onnxRuns = runHistory.filter((run) => runOnnxMap[run.id]).length;
+    const validatedRuns = runHistory.filter((run) => (runValidationMap[run.id]?.tested_images || 0) > 0).length;
 
     const applyRunConfig = (run: RunHistoryItem) => {
         const cfg = run?.config || {};
@@ -357,6 +429,11 @@ export const TrainSetup = () => {
                 delete next[run.id];
                 return next;
             });
+            setRunValidationMap((prev) => {
+                const next = { ...prev };
+                delete next[run.id];
+                return next;
+            });
             await loadHistory();
         } catch (error) {
             console.error(error);
@@ -381,7 +458,7 @@ export const TrainSetup = () => {
                 <StatusPill status="running" label="TRAIN PIPELINE READY" pulsing />
             </header>
 
-            <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
                 <Card className="border border-graphite-700/70">
                     <div className="flex items-center justify-between text-secondary text-xs uppercase tracking-[0.3em]">
                         <span>Historico</span>
@@ -409,6 +486,13 @@ export const TrainSetup = () => {
                         <Download size={14} />
                     </div>
                     <div className="mt-2 text-2xl font-mono text-accent-warning">{onnxRuns}</div>
+                </Card>
+                <Card className="border border-accent-success/25 bg-accent-success/5">
+                    <div className="flex items-center justify-between text-secondary text-xs uppercase tracking-[0.3em]">
+                        <span>Com validacao</span>
+                        <CheckCircle2 size={14} />
+                    </div>
+                    <div className="mt-2 text-2xl font-mono text-accent-success">{validatedRuns}</div>
                 </Card>
             </div>
 
@@ -691,6 +775,7 @@ export const TrainSetup = () => {
                             const statusMeta = getRunStatusMeta(run.status);
                             const StatusIcon = statusMeta.icon;
                             const onnxExported = Boolean(runOnnxMap[run.id]);
+                            const runValidation = runValidationMap[run.id] || null;
                             const isInProgress = isInProgressStatus(run.status);
                             const isDeleting = deletingRunId === run.id;
                             return (
@@ -767,6 +852,38 @@ export const TrainSetup = () => {
                                                     {item.label}: <strong className="text-bone">{formatMetric(item.value)}</strong>
                                                 </span>
                                             ))
+                                        )}
+                                    </div>
+
+                                    <div className={`rounded border px-3 py-2 text-xs ${
+                                        runValidation && runValidation.tested_images > 0
+                                            ? 'border-accent-success/35 bg-accent-success/5'
+                                            : 'border-graphite-700/70 bg-graphite-900'
+                                    }`}>
+                                        <div className="uppercase tracking-[0.24em] text-secondary mb-1">Validation</div>
+                                        {!runValidation || runValidation.tested_images === 0 ? (
+                                            <div className="text-secondary">Modelo deste treino ainda sem validacao no playground.</div>
+                                        ) : (
+                                            <>
+                                                <div className="text-secondary">
+                                                    Coverage: <span className="text-bone font-semibold">{runValidation.tested_images}/{runValidation.total_images}</span> ({formatPct(runValidation.coverage_pct)})
+                                                </div>
+                                                <div className="mt-1 flex flex-wrap gap-2 uppercase tracking-[0.16em]">
+                                                    <span className="rounded border border-accent-success/35 bg-accent-success/10 px-2 py-1">
+                                                        Correct <strong className="text-bone">{runValidation.correct}</strong>
+                                                    </span>
+                                                    <span className="rounded border border-accent-error/35 bg-accent-error/10 px-2 py-1">
+                                                        Wrong <strong className="text-bone">{runValidation.incorrect}</strong>
+                                                    </span>
+                                                    <span className="rounded border border-graphite-700/70 bg-graphite-900 px-2 py-1">
+                                                        Pending <strong className="text-bone">{runValidation.pending}</strong>
+                                                    </span>
+                                                </div>
+                                                <div className="mt-1 text-secondary">
+                                                    Accuracy (labeled): <span className="text-bone font-semibold">{formatPct(runValidation.accuracy_pct)}</span>
+                                                    {runValidation.last_tested_at ? ` · Last test ${new Date(runValidation.last_tested_at).toLocaleString()}` : ''}
+                                                </div>
+                                            </>
                                         )}
                                     </div>
 

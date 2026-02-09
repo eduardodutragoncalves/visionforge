@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from engine.io import paths, manifests
 from engine.orchestrator.core import orchestrator
+from engine.services.inference_history import inference_history_service
 
 router = APIRouter()
 
@@ -31,7 +32,11 @@ async def list_variants(project_id: str):
     variants_root = paths.get_variants_dir(project_id)
     if not variants_root.exists():
         return []
-    
+
+    validation_summary = inference_history_service.summarize_validation_by_variant(project_id)
+    total_validation_images = int(validation_summary.get("total_images", 0))
+    validation_by_variant = validation_summary.get("by_variant", {}) or {}
+
     variants = []
     for var_dir in variants_root.iterdir():
         if var_dir.is_dir():
@@ -76,6 +81,21 @@ async def list_variants(project_id: str):
                         "onnx": bool(onnx_path),
                         "onnx_path": str(onnx_path) if onnx_path else None
                     }
+                    data["validation"] = validation_by_variant.get(
+                        data.get("id"),
+                        {
+                            "total_images": total_validation_images,
+                            "tested_images": 0,
+                            "untested_images": total_validation_images,
+                            "coverage_pct": 0.0,
+                            "correct": 0,
+                            "incorrect": 0,
+                            "pending": 0,
+                            "labeled": 0,
+                            "accuracy_pct": None,
+                            "last_tested_at": None
+                        }
+                    )
                     variants.append(data)
                 except Exception:
                     pass

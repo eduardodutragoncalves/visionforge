@@ -51,6 +51,19 @@ interface DeploymentInfo {
     status?: string;
 }
 
+interface ValidationSummary {
+    total_images?: number;
+    tested_images?: number;
+    untested_images?: number;
+    coverage_pct?: number;
+    correct?: number;
+    incorrect?: number;
+    pending?: number;
+    labeled?: number;
+    accuracy_pct?: number | null;
+    last_tested_at?: string | null;
+}
+
 interface Variant {
     id: string;
     name: string;
@@ -68,6 +81,7 @@ interface Variant {
         onnx_path?: string | null;
     };
     deployments?: DeploymentInfo[];
+    validation?: ValidationSummary;
 }
 
 type DeployState = {
@@ -107,11 +121,39 @@ const formatMetric = (value?: number, decimals = 4) => {
     return value.toFixed(decimals);
 };
 
+const formatPercent = (value?: number | null, decimals = 1) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '—';
+    return `${value.toFixed(decimals)}%`;
+};
+
 const formatDate = (value?: string) => {
     if (!value) return 'Unknown date';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString();
+};
+
+const normalizedValidation = (validation?: ValidationSummary) => {
+    const totalImages = Math.max(0, Number(validation?.total_images || 0));
+    const testedImages = Math.max(0, Number(validation?.tested_images || 0));
+    const correct = Math.max(0, Number(validation?.correct || 0));
+    const incorrect = Math.max(0, Number(validation?.incorrect || 0));
+    const pending = Math.max(0, Number(validation?.pending || 0));
+    const labeled = Math.max(0, Number(validation?.labeled || correct + incorrect));
+    const coverage = typeof validation?.coverage_pct === 'number'
+        ? validation.coverage_pct
+        : (totalImages > 0 ? (testedImages / totalImages) * 100 : 0);
+    return {
+        totalImages,
+        testedImages,
+        correct,
+        incorrect,
+        pending,
+        labeled,
+        coverage: Math.max(0, Math.min(100, coverage)),
+        accuracyPct: typeof validation?.accuracy_pct === 'number' ? validation.accuracy_pct : null,
+        lastTestedAt: validation?.last_tested_at || null
+    };
 };
 
 const deriveProgress = (detail: any, fallback: DeployState | undefined): number => {
@@ -306,6 +348,24 @@ export const ProjectModels = () => {
         [variants]
     );
 
+    const modelsWithValidation = useMemo(
+        () => variants.filter((variant) => normalizedValidation(variant.validation).testedImages > 0).length,
+        [variants]
+    );
+
+    const validationLabeledTotal = useMemo(
+        () => variants.reduce((count, variant) => count + normalizedValidation(variant.validation).labeled, 0),
+        [variants]
+    );
+
+    const averageValidationAccuracy = useMemo(() => {
+        const entries = variants
+            .map((variant) => normalizedValidation(variant.validation).accuracyPct)
+            .filter((accuracy): accuracy is number => typeof accuracy === 'number' && !Number.isNaN(accuracy));
+        if (entries.length === 0) return null;
+        return entries.reduce((sum, value) => sum + value, 0) / entries.length;
+    }, [variants]);
+
     const deployedModelCount = useMemo(
         () => variants.filter((variant) => (variant.deployments?.length || 0) > 0).length,
         [variants]
@@ -356,7 +416,7 @@ export const ProjectModels = () => {
                 <StatusPill status="running" label={`MODELS: ${variants.length}`} pulsing={activeDeployEntries.length > 0} />
             </header>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <SummaryMetricCard
                     title="Trained Models"
                     value={String(variants.length)}
@@ -383,6 +443,13 @@ export const ProjectModels = () => {
                     hint={`Edge: ${edgeTargetCount} · Desktop: ${desktopTargetCount}`}
                     icon={Target}
                     tone="warning"
+                />
+                <SummaryMetricCard
+                    title="Validation"
+                    value={`${modelsWithValidation}/${variants.length}`}
+                    hint={`Accuracy avg ${formatPercent(averageValidationAccuracy)} · Labels ${validationLabeledTotal}`}
+                    icon={CheckCircle2}
+                    tone={modelsWithValidation > 0 ? 'success' : 'default'}
                 />
             </div>
 
@@ -463,6 +530,8 @@ export const ProjectModels = () => {
                         : deployments.length > 0
                             ? `${deployments.length} package${deployments.length > 1 ? 's' : ''} generated`
                             : 'No deployments generated yet';
+                    const validation = normalizedValidation(variant.validation);
+                    const hasValidation = validation.testedImages > 0;
 
                     return (
                         <Card
@@ -513,6 +582,37 @@ export const ProjectModels = () => {
                                             style={{ width: `${Math.max(5, Math.min(97, activeDeploy.progress ?? 0))}%` }}
                                         />
                                     </div>
+                                )}
+                            </div>
+
+                            <div className={`mt-3 rounded-lg border px-3 py-2 ${hasValidation ? 'border-accent-success/35 bg-accent-success/5' : 'border-graphite-700/70 bg-graphite-900/55'}`}>
+                                <div className="text-[11px] uppercase tracking-[0.3em] text-secondary">Validation</div>
+                                {hasValidation ? (
+                                    <>
+                                        <div className="mt-1 text-xs text-secondary">
+                                            {validation.testedImages}/{validation.totalImages} images tested · coverage {formatPercent(validation.coverage)}
+                                        </div>
+                                        <div className="mt-2 h-1.5 overflow-hidden rounded bg-graphite-700">
+                                            <div className="h-full bg-accent-success transition-all duration-300" style={{ width: `${validation.coverage}%` }} />
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.2em] text-secondary">
+                                            <span className="rounded border border-accent-success/35 bg-accent-success/10 px-2 py-1">
+                                                Correct: <strong className="text-bone">{validation.correct}</strong>
+                                            </span>
+                                            <span className="rounded border border-accent-error/35 bg-accent-error/10 px-2 py-1">
+                                                Wrong: <strong className="text-bone">{validation.incorrect}</strong>
+                                            </span>
+                                            <span className="rounded border border-graphite-700/70 bg-graphite-900 px-2 py-1">
+                                                Pending: <strong className="text-bone">{validation.pending}</strong>
+                                            </span>
+                                        </div>
+                                        <div className="mt-2 text-xs text-secondary">
+                                            Accuracy (labeled): <strong className="text-bone">{formatPercent(validation.accuracyPct)}</strong>
+                                            {validation.lastTestedAt ? ` · Last test ${formatDate(validation.lastTestedAt)}` : ''}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="mt-1 text-xs text-secondary">Model not validated yet on inference history images.</div>
                                 )}
                             </div>
 
