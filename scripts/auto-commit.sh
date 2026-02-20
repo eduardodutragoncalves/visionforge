@@ -110,7 +110,7 @@ build_auto_message() {
     printf '%s\n' "${staged_files[@]}" \
       | awk '
           BEGIN {
-            split("src app index test tests spec specs package lock json ts js tsx jsx py md txt yaml yml config settings data route routes component components page pages service services utils helper helpers model models runner runners hook hooks store schema schemas dist build electron api project projects desktop engine shared workspace script scripts", stop_words, " ");
+            split("src app index test tests spec specs package lock json ts js tsx jsx py md txt yaml yml config settings data route routes component components page pages service services utils helper helpers model models runner runners hook hooks store schema schemas dist build electron api project projects desktop engine shared workspace script scripts auto autosync sync commit watcher watch", stop_words, " ");
             for (i in stop_words) stop[stop_words[i]] = 1;
           }
           {
