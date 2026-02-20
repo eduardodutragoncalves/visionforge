@@ -50,6 +50,7 @@ interface DeploymentInfo {
     format?: string;
     package_dir?: string;
     artifact_path?: string;
+    package_zip_path?: string;
     readme_path?: string;
     created_at?: string;
     status?: string;
@@ -1164,6 +1165,12 @@ export const ProjectModels = () => {
                                 <div className="text-xs uppercase tracking-[0.24em] text-secondary">Package Folder</div>
                                 <div className="mt-1 break-all font-mono text-xs">{deployInspect.deployment.package_dir || 'Not available'}</div>
                             </div>
+                            {deployInspect.deployment.package_zip_path && (
+                                <div className="rounded-xl border border-graphite-700/70 bg-graphite-900 px-3 py-3 sm:col-span-2">
+                                    <div className="text-xs uppercase tracking-[0.24em] text-secondary">Package Zip</div>
+                                    <div className="mt-1 break-all font-mono text-xs">{deployInspect.deployment.package_zip_path}</div>
+                                </div>
+                            )}
                             {deployInspect.deployment.readme_path && (
                                 <div className="rounded-xl border border-graphite-700/70 bg-graphite-900 px-3 py-3 sm:col-span-2">
                                     <div className="text-xs uppercase tracking-[0.24em] text-secondary">Readme</div>
@@ -1216,6 +1223,21 @@ export const ProjectModels = () => {
                             >
                                 <ExternalLink size={14} className="mr-1" />
                                 Open Package Folder
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                onClick={async () => {
+                                    const zip = deployInspect.deployment.package_zip_path;
+                                    if (!zip) return;
+                                    const result = await window.ipcRenderer?.revealPath?.(zip);
+                                    if (result?.ok === false) {
+                                        setDeployNotice(`Could not open zip: ${result.message || 'unknown error'}`);
+                                    }
+                                }}
+                                disabled={!deployInspect.deployment.package_zip_path}
+                            >
+                                <ExternalLink size={14} className="mr-1" />
+                                Reveal Zip
                             </Button>
                         </div>
                     </div>
