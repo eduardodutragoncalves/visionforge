@@ -879,7 +879,7 @@ export const ProjectModels = () => {
                                             variant="ghost"
                                             onClick={() => cancelDeploy(variantId)}
                                             disabled={state.cancelRequested}
-                                            className="text-accent-error hover:text-accent-error"
+                                            className="text-error hover:text-error"
                                         >
                                             {state.cancelRequested ? 'Cancelling...' : 'Cancel Deploy'}
                                         </Button>
@@ -1113,7 +1113,7 @@ export const ProjectModels = () => {
                                         variant="ghost"
                                         onClick={() => cancelDeploy(variant.id)}
                                         disabled={activeDeploy.cancelRequested}
-                                        className="text-accent-error hover:text-accent-error"
+                                        className="text-error hover:text-error"
                                     >
                                         {activeDeploy.cancelRequested ? 'Cancelling...' : 'Cancel'}
                                     </Button>
