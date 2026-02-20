@@ -72,6 +72,16 @@ interface ValidationSummary {
 }
 
 type NumericConfigField = 'epochs' | 'img_size' | 'batch_size';
+type HistoryStatusFilter = 'all' | 'running' | 'completed' | 'failed' | 'other';
+type HistoryValidationFilter = 'all' | 'validated' | 'not_validated';
+type HistoryOnnxFilter = 'all' | 'onnx' | 'without_onnx';
+type HistorySortBy =
+    | 'newest'
+    | 'oldest'
+    | 'train_accuracy_desc'
+    | 'validation_accuracy_desc'
+    | 'validation_coverage_desc'
+    | 'name_asc';
 
 const isInProgressStatus = (status?: string) => {
     const normalized = String(status || '').toLowerCase();
@@ -112,6 +122,12 @@ const normalizeValidation = (validation?: VariantSummary['validation']): Validat
 const formatPct = (value?: number | null, digits = 1) => {
     if (typeof value !== 'number' || Number.isNaN(value)) return '—';
     return `${value.toFixed(digits)}%`;
+};
+
+const toAccuracyPercent = (value?: number | null) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return null;
+    if (value <= 1) return value * 100;
+    return value;
 };
 
 const resolveDatasetFormatByFramework = (framework: string) => {
@@ -161,6 +177,11 @@ export const TrainSetup = () => {
     const [runValidationMap, setRunValidationMap] = useState<Record<string, ValidationSummary>>({});
     const [historyLoading, setHistoryLoading] = useState(false);
     const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+    const [historyQuery, setHistoryQuery] = useState('');
+    const [historyStatusFilter, setHistoryStatusFilter] = useState<HistoryStatusFilter>('all');
+    const [historyValidationFilter, setHistoryValidationFilter] = useState<HistoryValidationFilter>('all');
+    const [historyOnnxFilter, setHistoryOnnxFilter] = useState<HistoryOnnxFilter>('all');
+    const [historySortBy, setHistorySortBy] = useState<HistorySortBy>('newest');
     const [splitTrainPct, setSplitTrainPct] = useState(80);
     const [splitValPct, setSplitValPct] = useState(20);
     const [splitTestPct, setSplitTestPct] = useState(0);
@@ -304,6 +325,68 @@ export const TrainSetup = () => {
     const completedRuns = runHistory.filter((run) => String(run.status || '').toLowerCase() === 'completed').length;
     const onnxRuns = runHistory.filter((run) => runOnnxMap[run.id]).length;
     const validatedRuns = runHistory.filter((run) => (runValidationMap[run.id]?.tested_images || 0) > 0).length;
+    const filteredRunHistory = useMemo(() => {
+        const query = historyQuery.trim().toLowerCase();
+        const parseTimestamp = (value?: string) => {
+            const ts = Date.parse(String(value || ''));
+            return Number.isNaN(ts) ? 0 : ts;
+        };
+
+        const filtered = runHistory.filter((run) => {
+            const validation = runValidationMap[run.id];
+            const hasValidation = Boolean(validation && validation.tested_images > 0);
+            const hasOnnx = Boolean(runOnnxMap[run.id]);
+            const normalizedStatus = String(run.status || '').toLowerCase();
+
+            if (historyStatusFilter === 'running' && !isInProgressStatus(normalizedStatus)) return false;
+            if (historyStatusFilter === 'completed' && normalizedStatus !== 'completed') return false;
+            if (historyStatusFilter === 'failed' && normalizedStatus !== 'failed' && normalizedStatus !== 'error') return false;
+            if (
+                historyStatusFilter === 'other' &&
+                (isInProgressStatus(normalizedStatus) || normalizedStatus === 'completed' || normalizedStatus === 'failed' || normalizedStatus === 'error')
+            ) {
+                return false;
+            }
+
+            if (historyValidationFilter === 'validated' && !hasValidation) return false;
+            if (historyValidationFilter === 'not_validated' && hasValidation) return false;
+
+            if (historyOnnxFilter === 'onnx' && !hasOnnx) return false;
+            if (historyOnnxFilter === 'without_onnx' && hasOnnx) return false;
+
+            if (query) {
+                const searchable = [
+                    run.id,
+                    run.name,
+                    String(run.config?.base_model || ''),
+                    String(run.status || '')
+                ].join(' ').toLowerCase();
+                if (!searchable.includes(query)) return false;
+            }
+            return true;
+        });
+
+        filtered.sort((a, b) => {
+            if (historySortBy === 'newest') return parseTimestamp(b.created_at) - parseTimestamp(a.created_at);
+            if (historySortBy === 'oldest') return parseTimestamp(a.created_at) - parseTimestamp(b.created_at);
+            if (historySortBy === 'name_asc') return String(a.name || a.id).localeCompare(String(b.name || b.id));
+            if (historySortBy === 'train_accuracy_desc') {
+                const aAcc = toAccuracyPercent(a.final_metrics?.accuracy) ?? -Infinity;
+                const bAcc = toAccuracyPercent(b.final_metrics?.accuracy) ?? -Infinity;
+                return bAcc - aAcc;
+            }
+            if (historySortBy === 'validation_accuracy_desc') {
+                const aAcc = runValidationMap[a.id]?.accuracy_pct ?? -Infinity;
+                const bAcc = runValidationMap[b.id]?.accuracy_pct ?? -Infinity;
+                return bAcc - aAcc;
+            }
+            const aCoverage = runValidationMap[a.id]?.coverage_pct ?? -Infinity;
+            const bCoverage = runValidationMap[b.id]?.coverage_pct ?? -Infinity;
+            return bCoverage - aCoverage;
+        });
+
+        return filtered;
+    }, [historyOnnxFilter, historyQuery, historySortBy, historyStatusFilter, historyValidationFilter, runHistory, runOnnxMap, runValidationMap]);
 
     const applyRunConfig = (run: RunHistoryItem) => {
         const cfg = run?.config || {};
@@ -350,6 +433,12 @@ export const TrainSetup = () => {
         if (typeof value !== 'number') return '—';
         if (Number.isNaN(value)) return '—';
         return value.toFixed(4);
+    };
+
+    const formatAccuracyBadge = (value?: number | null) => {
+        const percent = toAccuracyPercent(value);
+        if (percent === null) return '—';
+        return `${percent.toFixed(1)}%`;
     };
 
     const buildIndicators = (run: RunHistoryItem) => {
