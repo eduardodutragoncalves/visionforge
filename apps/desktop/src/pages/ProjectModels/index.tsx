@@ -873,6 +873,17 @@ export const ProjectModels = () => {
                                     <div className="mt-2 h-2 overflow-hidden rounded bg-graphite-700">
                                         <div className="h-full bg-accent-warning transition-all duration-500" style={{ width: `${progress}%` }} />
                                     </div>
+                                    <div className="mt-2 flex justify-end">
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => cancelDeploy(variantId)}
+                                            disabled={state.cancelRequested}
+                                            className="text-accent-error hover:text-accent-error"
+                                        >
+                                            {state.cancelRequested ? 'Cancelling...' : 'Cancel Deploy'}
+                                        </Button>
+                                    </div>
                                 </div>
                             );
                         })}
@@ -1096,18 +1107,29 @@ export const ProjectModels = () => {
 
                             <div className="mt-3 grid grid-cols-2 gap-2">
                                 <Button size="sm" variant="secondary">Test</Button>
-                                <Button
-                                    size="sm"
-                                    variant={activeDeploy ? 'ghost' : 'primary'}
-                                    onClick={() => {
-                                        setSelectedTargetId('edge_jetson');
-                                        setDeployModalVariant(variant);
-                                    }}
-                                    disabled={Boolean(activeDeploy)}
-                                >
-                                    <HardDriveDownload size={14} className="mr-1" />
-                                    {activeDeploy ? 'Deploying...' : 'Deploy'}
-                                </Button>
+                                {activeDeploy ? (
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => cancelDeploy(variant.id)}
+                                        disabled={activeDeploy.cancelRequested}
+                                        className="text-accent-error hover:text-accent-error"
+                                    >
+                                        {activeDeploy.cancelRequested ? 'Cancelling...' : 'Cancel'}
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        size="sm"
+                                        variant="primary"
+                                        onClick={() => {
+                                            setSelectedTargetId('edge_jetson');
+                                            setDeployModalVariant(variant);
+                                        }}
+                                    >
+                                        <HardDriveDownload size={14} className="mr-1" />
+                                        Deploy
+                                    </Button>
+                                )}
                             </div>
                         </Card>
                     );
