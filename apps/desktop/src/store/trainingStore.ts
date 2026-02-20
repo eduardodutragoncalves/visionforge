@@ -2,9 +2,13 @@ import { create } from 'zustand';
 
 export interface MetricPoint {
     epoch: number;
-    loss: number;
-    accuracy: number;
-    lr: number;
+    loss?: number;
+    accuracy?: number;
+    map50?: number;
+    map5095?: number;
+    precision?: number;
+    recall?: number;
+    lr?: number;
     total_epochs?: number;
 }
 
@@ -36,6 +40,7 @@ interface RunState {
     metrics: MetricPoint[];
     logs: LogEntry[];
     startedAt?: number;
+    endedAt?: number;
     config?: Record<string, any>;
     name?: string;
 }
@@ -49,6 +54,7 @@ const createRunState = (runId: string, totalEpochs: number, projectId?: string, 
     logs: [],
     currentEpoch: 0,
     startedAt: Date.now(),
+    endedAt: undefined,
     config,
     name
 });
@@ -88,7 +94,8 @@ export const useTrainingStore = create<TrainingState>((set) => ({
                     metrics: [...run.metrics, metric],
                     currentEpoch: metric.epoch,
                     totalEpochs: metric.total_epochs || run.totalEpochs,
-                    status: run.status === 'starting' ? 'training' : run.status
+                    status: run.status === 'starting' ? 'training' : run.status,
+                    endedAt: undefined
                 }
             }
         };
@@ -109,12 +116,15 @@ export const useTrainingStore = create<TrainingState>((set) => ({
 
     setStatus: (runId, status) => set((state) => {
         const run = state.runs[runId] ?? createRunState(runId, 0);
+        const isTerminal = status === 'completed' || status === 'failed' || status === 'stopped';
         return {
             runs: {
                 ...state.runs,
                 [runId]: {
                     ...run,
-                    status
+                    status,
+                    startedAt: run.startedAt ?? Date.now(),
+                    endedAt: isTerminal ? (run.endedAt ?? Date.now()) : undefined
                 }
             }
         };

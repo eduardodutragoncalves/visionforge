@@ -9,13 +9,24 @@ import {
 } from 'recharts';
 import { useTrainingStore } from '../../store/trainingStore';
 
-const SERIES = [
-    { key: 'loss', label: 'Loss', color: '#ef4444' },
-    { key: 'accuracy', label: 'Accuracy', color: '#00f0ff' }
-];
+interface TrainingChartProps {
+    runId: string;
+    compact?: boolean;
+    secondaryKey?: 'accuracy' | 'map50';
+    secondaryLabel?: string;
+}
 
-export const TrainingChart = ({ runId, compact = false }: { runId: string; compact?: boolean }) => {
+export const TrainingChart = ({
+    runId,
+    compact = false,
+    secondaryKey = 'accuracy',
+    secondaryLabel = 'Accuracy'
+}: TrainingChartProps) => {
     const metrics = useTrainingStore(state => state.runs[runId]?.metrics ?? []);
+    const series = [
+        { key: 'loss', label: 'Loss', color: '#ef4444' },
+        { key: secondaryKey, label: secondaryLabel, color: '#00f0ff' }
+    ];
 
     if (metrics.length === 0) {
         return (
@@ -28,7 +39,7 @@ export const TrainingChart = ({ runId, compact = false }: { runId: string; compa
     return (
         <div className="flex h-full min-h-0 flex-col gap-2">
             <div className={`flex flex-wrap gap-3 uppercase tracking-[0.3em] text-secondary ${compact ? 'text-[10px]' : 'text-xs'}`}>
-                {SERIES.map((item) => (
+                {series.map((item) => (
                     <div key={item.key} className="flex items-center gap-2">
                         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
                         <span>{item.label}</span>
@@ -48,7 +59,7 @@ export const TrainingChart = ({ runId, compact = false }: { runId: string; compa
                             contentStyle={{ backgroundColor: '#0f0f13', borderColor: '#333' }}
                             itemStyle={{ color: '#fff' }}
                         />
-                        {SERIES.map((item) => (
+                        {series.map((item) => (
                             <Line
                                 key={item.key}
                                 type="monotone"
@@ -56,6 +67,7 @@ export const TrainingChart = ({ runId, compact = false }: { runId: string; compa
                                 stroke={item.color}
                                 strokeWidth={2}
                                 dot={false}
+                                connectNulls
                             />
                         ))}
                     </LineChart>

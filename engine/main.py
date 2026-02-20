@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from engine.api import endpoints, websocket, runs, run_actions, projects, datasets, variants, inference
+from engine.api import endpoints, websocket, runs, run_actions, projects, datasets, variants, inference, settings
 from engine.services.heartbeat import start_heartbeat_service
 from engine.orchestrator import orchestrator
 from engine.io import paths
@@ -93,6 +93,7 @@ app.include_router(runs.router, tags=["Runs"])
 app.include_router(run_actions.router, tags=["Runs"])
 app.include_router(variants.router, tags=["Variants"])
 app.include_router(inference.router, tags=["Inference"])
+app.include_router(settings.router, tags=["Settings"])
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import clsx from 'clsx';
+import { Boxes, ListFilter, Shapes } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -33,6 +35,10 @@ interface DeleteState {
 }
 
 const API_BASE_URL = ENGINE_HTTP_URL;
+type ProjectTypeFilter = 'all' | 'classification' | 'detection';
+
+const normalizeAnalysisType = (type: Project['analysis_type']): 'classification' | 'detection' =>
+    type === 'detection' ? 'detection' : 'classification';
 
 const formatDate = (iso: string) => {
     const parsed = new Date(iso);
@@ -47,12 +53,26 @@ export const Projects = () => {
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [form, setForm] = useState({ name: '', description: '', analysis_type: 'classification' });
     const [formError, setFormError] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
     const [deleteState, setDeleteState] = useState<DeleteState | null>(null);
     const [deleteError, setDeleteError] = useState<string | null>(null);
+    const [typeFilter, setTypeFilter] = useState<ProjectTypeFilter>('all');
     const deleteStateRef = useRef<DeleteState | null>(null);
+    const filteredProjects = useMemo(() => {
+        if (typeFilter === 'all') return projects;
+        return projects.filter((project) => normalizeAnalysisType(project.analysis_type) === typeFilter);
+    }, [projects, typeFilter]);
+    const classificationCount = useMemo(
+        () => projects.filter((project) => normalizeAnalysisType(project.analysis_type) === 'classification').length,
+        [projects]
+    );
+    const detectionCount = useMemo(
+        () => projects.filter((project) => normalizeAnalysisType(project.analysis_type) === 'detection').length,
+        [projects]
+    );
 
     const loadProjects = async () => {
         setLoading(true);
@@ -154,6 +174,7 @@ export const Projects = () => {
             const created = await res.json();
             setProjects((prev) => [created, ...prev]);
             setForm({ name: '', description: '', analysis_type: 'classification' });
+            setIsCreateModalOpen(false);
         } catch (err) {
             setFormError(err instanceof Error ? err.message : 'Failed to create project.');
         } finally {
@@ -194,6 +215,17 @@ export const Projects = () => {
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
+                        <Button
+                            variant="primary"
+                            size="lg"
+                            className="min-w-[220px]"
+                            onClick={() => {
+                                setFormError(null);
+                                setIsCreateModalOpen(true);
+                            }}
+                        >
+                            New Project
+                        </Button>
                         <Button variant="secondary" onClick={loadProjects} disabled={loading}>
                             {loading ? 'Refreshing...' : 'Refresh'}
                         </Button>
@@ -204,97 +236,141 @@ export const Projects = () => {
                 </div>
             </header>
 
-            <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.7fr)]">
-                <div className="order-2 lg:order-1 space-y-6">
-                    <div className="stagger-children grid gap-6 sm:grid-cols-2">
-                        {loading && (
-                            <Card>
-                                <div className="text-secondary">Loading projects...</div>
-                            </Card>
-                        )}
-
-                        {!loading && error && (
-                            <Card>
-                                <div className="text-error">{error}</div>
-                                <div className="text-secondary text-sm mt-2">Check if the engine is running.</div>
-                            </Card>
-                        )}
-
-                        {!loading && !error && projects.length === 0 && (
-                            <Card>
-                                <div className="text-secondary">No projects yet. Create the first one on the right.</div>
-                            </Card>
-                        )}
-
-                        {!loading && !error && projects.map((project) => (
-                            <Card key={project.id} hoverEffect className="flex flex-col gap-4">
-                                <div className="flex items-start justify-between">
-                                    <div>
-                                        <h3 className="font-semibold text-lg">{project.name}</h3>
-                                        <div className="text-xs text-secondary font-mono">{project.id}</div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Button
-                                            size="sm"
-                                            variant="secondary"
-                                            onClick={() => navigate(`/projects/${project.id}/dataset`)}
-                                        >
-                                            Open
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="secondary"
-                                            className="border-accent-error/60 text-accent-error hover:text-white"
-                                            onClick={() => handleDelete(project)}
-                                        >
-                                            Delete
-                                        </Button>
-                                    </div>
-                                </div>
-                                <p className="text-secondary text-sm">
-                                    {project.description || 'No description.'}
-                                </p>
-                                <div className="grid gap-2 text-xs text-secondary">
-                                    <div>Created at {formatDate(project.created_at)}</div>
-                                    {project.last_run_at && (
-                                        <div>Last run {formatDate(project.last_run_at)}</div>
-                                    )}
-                                </div>
-                                <div className="grid gap-2 sm:grid-cols-2 text-xs">
-                                    <div className="stat-chip">
-                                        <span>Images</span>
-                                        <strong>{project.images_total ?? 0}</strong>
-                                    </div>
-                                    <div className="stat-chip">
-                                        <span>Labeled</span>
-                                        <strong>{project.labeled_images ?? 0}</strong>
-                                    </div>
-                                    <div className="stat-chip">
-                                        <span>Labels</span>
-                                        <strong>{project.labels_total ?? 0}</strong>
-                                    </div>
-                                    <div className="stat-chip">
-                                        <span>Runs</span>
-                                        <strong>{project.runs_total ?? 0}</strong>
-                                    </div>
-                                </div>
-                                <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.3em] text-secondary">
-                                    <span>{project.analysis_type === 'detection' ? 'Detection' : 'Classification'}</span>
-                                    <span>Classes {project.classes_total ?? 0}</span>
-                                    <span>Sources {project.sources_total ?? 0}</span>
-                                </div>
-                            </Card>
-                        ))}
-                    </div>
+            <div className="space-y-6">
+                <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        className={clsx('tab-button inline-flex items-center gap-2', typeFilter === 'all' && 'tab-button-active')}
+                        onClick={() => setTypeFilter('all')}
+                    >
+                        <ListFilter size={14} />
+                        <span>All ({projects.length})</span>
+                    </button>
+                    <button
+                        type="button"
+                        className={clsx('tab-button inline-flex items-center gap-2', typeFilter === 'classification' && 'tab-button-active')}
+                        onClick={() => setTypeFilter('classification')}
+                    >
+                        <Shapes size={14} />
+                        <span>Classification ({classificationCount})</span>
+                    </button>
+                    <button
+                        type="button"
+                        className={clsx('tab-button inline-flex items-center gap-2', typeFilter === 'detection' && 'tab-button-active')}
+                        onClick={() => setTypeFilter('detection')}
+                    >
+                        <Boxes size={14} />
+                        <span>Object Detection ({detectionCount})</span>
+                    </button>
                 </div>
+                <div className="stagger-children grid gap-6 sm:grid-cols-2">
+                    {loading && (
+                        <Card>
+                            <div className="text-secondary">Loading projects...</div>
+                        </Card>
+                    )}
 
-                <div className="order-1 lg:order-2 lg:sticky lg:top-6 h-fit">
-                    <Card className="relative">
-                        <div className="absolute -left-6 top-10 origin-left -rotate-90 text-[10px] uppercase tracking-[0.6em] text-haze">
-                            New Project
+                    {!loading && error && (
+                        <Card>
+                            <div className="text-error">{error}</div>
+                            <div className="text-secondary text-sm mt-2">Check if the engine is running.</div>
+                        </Card>
+                    )}
+
+                    {!loading && !error && projects.length === 0 && (
+                        <Card>
+                            <div className="text-secondary">No projects yet. Create the first one with New Project.</div>
+                        </Card>
+                    )}
+
+                    {!loading && !error && projects.length > 0 && filteredProjects.length === 0 && (
+                        <Card>
+                            <div className="text-secondary">No projects match this filter.</div>
+                        </Card>
+                    )}
+
+                    {!loading && !error && filteredProjects.map((project) => (
+                        <Card key={project.id} hoverEffect className="flex flex-col gap-4">
+                            <div className="flex items-start justify-between">
+                                <div>
+                                    <h3 className="font-semibold text-lg">{project.name}</h3>
+                                    <div className="text-xs text-secondary font-mono">{project.id}</div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => navigate(`/projects/${project.id}/dataset`)}
+                                    >
+                                        Open
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        className="border-accent-error/60 text-accent-error hover:text-white"
+                                        onClick={() => handleDelete(project)}
+                                    >
+                                        Delete
+                                    </Button>
+                                </div>
+                            </div>
+                            <p className="text-secondary text-sm">
+                                {project.description || 'No description.'}
+                            </p>
+                            <div className="grid gap-2 text-xs text-secondary">
+                                <div>Created at {formatDate(project.created_at)}</div>
+                                {project.last_run_at && (
+                                    <div>Last run {formatDate(project.last_run_at)}</div>
+                                )}
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2 text-xs">
+                                <div className="stat-chip">
+                                    <span>Images</span>
+                                    <strong>{project.images_total ?? 0}</strong>
+                                </div>
+                                <div className="stat-chip">
+                                    <span>Labeled</span>
+                                    <strong>{project.labeled_images ?? 0}</strong>
+                                </div>
+                                <div className="stat-chip">
+                                    <span>Labels</span>
+                                    <strong>{project.labels_total ?? 0}</strong>
+                                </div>
+                                <div className="stat-chip">
+                                    <span>Runs</span>
+                                    <strong>{project.runs_total ?? 0}</strong>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.3em] text-secondary">
+                                <span>{project.analysis_type === 'detection' ? 'Detection' : 'Classification'}</span>
+                                <span>Classes {project.classes_total ?? 0}</span>
+                                <span>Sources {project.sources_total ?? 0}</span>
+                            </div>
+                        </Card>
+                    ))}
+                </div>
+            </div>
+            {isCreateModalOpen && (
+                <div className="modal-backdrop" role="dialog" aria-modal="true">
+                    <div className="modal-card max-w-[560px]">
+                        <div className="modal-header">
+                            <div>
+                                <div className="text-xs uppercase tracking-[0.4em] text-haze">Workspace</div>
+                                <div className="text-lg font-semibold">New Project</div>
+                            </div>
+                            <button
+                                type="button"
+                                className="window-button"
+                                onClick={() => {
+                                    setFormError(null);
+                                    setIsCreateModalOpen(false);
+                                }}
+                                aria-label="Close"
+                            >
+                                ✕
+                            </button>
                         </div>
-                        <h3 className="text-lg font-semibold mb-4">New Project</h3>
-                        <div className="grid gap-3">
+                        <div className="mt-5 grid gap-3">
                             <Input
                                 label="Name"
                                 placeholder="Ex: Defect detection"
@@ -319,13 +395,24 @@ export const Projects = () => {
                             {formError && (
                                 <div className="text-xs text-error">{formError}</div>
                             )}
-                            <Button variant="primary" onClick={handleCreate} disabled={creating}>
-                                {creating ? 'Creating...' : 'Create project'}
-                            </Button>
+                            <div className="mt-2 flex items-center justify-end gap-2">
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => {
+                                        setFormError(null);
+                                        setIsCreateModalOpen(false);
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button variant="primary" onClick={handleCreate} disabled={creating}>
+                                    {creating ? 'Creating...' : 'Create project'}
+                                </Button>
+                            </div>
                         </div>
-                    </Card>
+                    </div>
                 </div>
-            </div>
+            )}
             {deleteState && (
                 <div className="modal-backdrop" role="dialog" aria-modal="true">
                     <div className="modal-card">

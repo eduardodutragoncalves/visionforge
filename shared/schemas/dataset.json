@@ -63,6 +63,18 @@
                             "required": ["class_id", "x", "y", "w", "h"]
                         },
                         "default": []
+                    },
+                    "detection_done": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "is_augmented": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "augmentation_source_id": {
+                        "type": ["string", "null"],
+                        "default": null
                     }
                 },
                 "required": ["id", "path"]

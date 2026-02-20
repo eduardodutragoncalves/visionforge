@@ -83,6 +83,29 @@ This will launch:
 1. **Frontend:** Confirm the Electron window opens.
 2. **Backend:** Check http://localhost:8000/health returns `{"status": "ok"}`.
 
+## Automatic commits (autosync)
+
+Automatic commit/push can run in the background and create compact, intelligent commit messages based on the current diff.
+
+Commands:
+
+```bash
+npm run autosync:start    # start background watcher
+npm run autosync:status   # check watcher status
+npm run autosync:stop     # stop watcher
+npm run autosync:once     # commit now (single run)
+```
+
+Behavior:
+- Watches repository changes and waits for a short stable window before committing.
+- Uses generated commit subjects with type + scope + short implementation topics.
+- Existing `post-commit` hook pushes to `origin/<current-branch>` when configured.
+
+Optional env vars:
+- `AUTO_SYNC_ENABLED=0` disables autosync.
+- `AUTO_SYNC_INTERVAL_SECONDS` controls watcher poll interval (default `8`).
+- `AUTO_SYNC_STABLE_SECONDS` controls stable window before commit (default `20`).
+
 ## Training runtime options (inside the app)
 
 The Desktop app can run training jobs using different runtimes. This does not change how you start the app; it only affects training.

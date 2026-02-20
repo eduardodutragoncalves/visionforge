@@ -10,6 +10,11 @@
     "dev": "npm run dev:desktop",
     "dev:desktop": "npm run dev --workspace=apps/desktop",
     "dev:engine": "uvicorn engine.main:app --reload --port 8000",
+    "autosync:start": "bash scripts/auto-commit-watch.sh start",
+    "autosync:stop": "bash scripts/auto-commit-watch.sh stop",
+    "autosync:restart": "bash scripts/auto-commit-watch.sh restart",
+    "autosync:status": "bash scripts/auto-commit-watch.sh status",
+    "autosync:once": "bash scripts/auto-sync.sh",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces"
   },

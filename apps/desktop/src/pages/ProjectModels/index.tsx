@@ -327,7 +327,7 @@ const renderReadmeMarkdown = (markdown: string): ReactNode[] => {
     flushCode();
 
     if (nodes.length === 0) {
-        return [<p key="empty-readme" className="text-sm text-secondary">README vazio.</p>];
+        return [<p key="empty-readme" className="text-sm text-secondary">Empty README.</p>];
     }
     return nodes;
 };
@@ -442,7 +442,7 @@ export const ProjectModels = () => {
                 delete next[variantId];
                 return next;
             });
-            setDeployNotice(`Deploy concluido para ${variantId} (${targetLabel(detail.target_id)}).`);
+            setDeployNotice(`Deployment completed for ${variantId} (${targetLabel(detail.target_id)}).`);
             fetchVariants();
         };
 
@@ -456,7 +456,7 @@ export const ProjectModels = () => {
                     return next;
                 });
             }
-            setDeployNotice(`Falha no deploy: ${detail.error || 'Unknown error'}`);
+            setDeployNotice(`Deployment failed: ${detail.error || 'Unknown error'}`);
         };
 
         window.addEventListener('vf-export-started', onStarted as EventListener);
@@ -512,7 +512,7 @@ export const ProjectModels = () => {
                 return next;
             });
             const text = await res.text();
-            setDeployNotice(`Falha ao enfileirar deploy: ${text}`);
+            setDeployNotice(`Failed to queue deployment: ${text}`);
         }
     };
 
@@ -580,19 +580,19 @@ export const ProjectModels = () => {
     const openReadmePreview = useCallback(async (variant: Variant, deployment: DeploymentInfo) => {
         const readmePath = deployment.readme_path;
         if (!readmePath) {
-            setDeployNotice('README nao encontrado para este deploy.');
+            setDeployNotice('README not found for this deployment.');
             return;
         }
         const reader = window.ipcRenderer?.readTextFile;
         if (!reader) {
-            setDeployNotice('Leitura local indisponivel nesta sessao.');
+            setDeployNotice('Local file access is unavailable in this session.');
             return;
         }
         setReadmeLoading(true);
         try {
             const result = await reader(readmePath);
             if (!result?.ok || typeof result.content !== 'string') {
-                setDeployNotice(`Nao foi possivel abrir README: ${result?.message || 'erro desconhecido'}`);
+                setDeployNotice(`Could not open README: ${result?.message || 'unknown error'}`);
                 return;
             }
             setReadmeInspect({
@@ -1052,7 +1052,7 @@ export const ProjectModels = () => {
                                     if (!artifact) return;
                                     const result = await window.ipcRenderer?.revealPath?.(artifact);
                                     if (result?.ok === false) {
-                                        setDeployNotice(`Nao foi possivel abrir artefato: ${result.message || 'unknown error'}`);
+                                        setDeployNotice(`Could not open artifact: ${result.message || 'unknown error'}`);
                                     }
                                 }}
                             >
@@ -1066,7 +1066,7 @@ export const ProjectModels = () => {
                                     if (!pkg) return;
                                     const result = await window.ipcRenderer?.openPath?.(pkg);
                                     if (result?.ok === false) {
-                                        setDeployNotice(`Nao foi possivel abrir pasta: ${result.message || 'unknown error'}`);
+                                        setDeployNotice(`Could not open folder: ${result.message || 'unknown error'}`);
                                     }
                                 }}
                             >
@@ -1111,7 +1111,7 @@ export const ProjectModels = () => {
                                 onClick={async () => {
                                     const result = await window.ipcRenderer?.revealPath?.(readmeInspect.path);
                                     if (result?.ok === false) {
-                                        setDeployNotice(`Nao foi possivel abrir README: ${result.message || 'unknown error'}`);
+                                        setDeployNotice(`Could not open README: ${result.message || 'unknown error'}`);
                                     }
                                 }}
                             >
@@ -1122,7 +1122,7 @@ export const ProjectModels = () => {
                                 variant="secondary"
                                 onClick={() => setReadmeInspect(null)}
                             >
-                                Fechar Guia
+                                Close Guide
                             </Button>
                         </div>
                     </div>

@@ -25,6 +25,8 @@ async def run_infer(
     variant_id: str, 
     project_id: str = Form(...), 
     conf_threshold: float = Form(0.25),
+    iou_threshold: float = Form(0.45),
+    agnostic_nms: bool = Form(False),
     file: UploadFile = File(...)
 ):
     """
@@ -40,7 +42,13 @@ async def run_infer(
 
     try:
         content = await file.read()
-        result = inference_service.run_inference(variant_dir, content, conf_threshold)
+        result = inference_service.run_inference(
+            variant_dir,
+            content,
+            conf_threshold=conf_threshold,
+            iou_threshold=iou_threshold,
+            agnostic_nms=agnostic_nms
+        )
         history_item = inference_history_service.record_inference(
             project_id,
             variant_id,
@@ -61,7 +69,9 @@ async def run_infer_history(
     project_id: str,
     variant_id: str,
     image_id: str,
-    conf_threshold: float = Form(0.25)
+    conf_threshold: float = Form(0.25),
+    iou_threshold: float = Form(0.45),
+    agnostic_nms: bool = Form(False)
 ):
     variant_dir = paths.get_variant_dir(project_id, variant_id)
     if not variant_dir.exists():
@@ -69,7 +79,13 @@ async def run_infer_history(
     try:
         image_path = inference_history_service.get_image_path(project_id, image_id)
         content = image_path.read_bytes()
-        result = inference_service.run_inference(variant_dir, content, conf_threshold)
+        result = inference_service.run_inference(
+            variant_dir,
+            content,
+            conf_threshold=conf_threshold,
+            iou_threshold=iou_threshold,
+            agnostic_nms=agnostic_nms
+        )
         history_item = inference_history_service.record_inference(
             project_id,
             variant_id,

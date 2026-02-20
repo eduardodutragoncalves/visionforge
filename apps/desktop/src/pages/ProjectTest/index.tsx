@@ -4,6 +4,8 @@ import {
     Camera,
     CheckCircle2,
     Clock3,
+    Eye,
+    EyeOff,
     FolderOpen,
     ImagePlus,
     Loader2,
@@ -85,6 +87,12 @@ interface PredictionIdentity {
 
 const IMAGE_EXT_RE = /\.(jpg|jpeg|png|bmp|webp|gif|tif|tiff)$/i;
 
+const isEditableTarget = (target: EventTarget | null) => {
+    if (!target || !(target instanceof HTMLElement)) return false;
+    const tag = target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+};
+
 const isImageFile = (file: File) => {
     if (file.type?.startsWith('image/')) return true;
     return IMAGE_EXT_RE.test(file.name || '');
@@ -93,6 +101,32 @@ const isImageFile = (file: File) => {
 const queueKey = (file: File) => `${file.name}|${file.size}|${file.lastModified}`;
 
 const asPercent = (v: number) => `${Math.max(0, Math.min(100, v)).toFixed(0)}%`;
+
+const VARIANT_COLOR_PALETTE = [
+    '#2fb8ff',
+    '#3bd989',
+    '#ffc857',
+    '#ff5c6f',
+    '#7bdff2',
+    '#9be564',
+    '#ff9f43',
+    '#5fd3ff',
+    '#f6c90e',
+    '#4ecdc4'
+];
+
+const hexToRgba = (hex: string, alpha: number) => {
+    const normalized = hex.replace('#', '').trim();
+    if (normalized.length !== 6) return `rgba(47, 184, 255, ${alpha})`;
+    const r = parseInt(normalized.slice(0, 2), 16);
+    const g = parseInt(normalized.slice(2, 4), 16);
+    const b = parseInt(normalized.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const DETECTION_CONF_THRESHOLD = '0.25';
+const DETECTION_IOU_THRESHOLD = '0.45';
+const DETECTION_AGNOSTIC_NMS = 'true';
 
 const formatLatency = (ms?: number) => {
     if (typeof ms !== 'number' || Number.isNaN(ms)) return '—';
@@ -163,6 +197,7 @@ export const ProjectTest = () => {
     const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
     const [singleRunBusy, setSingleRunBusy] = useState<string | null>(null);
     const [feedbackBusy, setFeedbackBusy] = useState(false);
+    const [hiddenOverlayVariantIds, setHiddenOverlayVariantIds] = useState<string[]>([]);
 
     const imageInputRef = useRef<HTMLInputElement>(null);
     const folderInputRef = useRef<HTMLInputElement>(null);
@@ -260,7 +295,7 @@ export const ProjectTest = () => {
         if (!files || files.length === 0) return;
         const incoming = Array.from(files).filter(isImageFile);
         if (incoming.length === 0) {
-            setNotice({ kind: 'error', text: 'Nenhum arquivo de imagem valido foi encontrado.' });
+            setNotice({ kind: 'error', text: 'No valid image files were found.' });
             return;
         }
 
@@ -273,7 +308,7 @@ export const ProjectTest = () => {
             return Array.from(map.values());
         });
 
-        setNotice({ kind: 'info', text: `${incoming.length} imagem(ns) adicionada(s) para validacao em massa.` });
+        setNotice({ kind: 'info', text: `${incoming.length} image(s) added for bulk validation.` });
     }, []);
 
     const inferUploadedFile = useCallback(async (variantId: string, file: File): Promise<InferenceResponse | null> => {
@@ -281,6 +316,9 @@ export const ProjectTest = () => {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('project_id', projectId);
+        formData.append('conf_threshold', DETECTION_CONF_THRESHOLD);
+        formData.append('iou_threshold', DETECTION_IOU_THRESHOLD);
+        formData.append('agnostic_nms', DETECTION_AGNOSTIC_NMS);
 
         const res = await fetch(`${ENGINE_HTTP_URL}/variants/${variantId}/infer`, {
             method: 'POST',
@@ -298,7 +336,9 @@ export const ProjectTest = () => {
     const inferHistoryImage = useCallback(async (variantId: string, imageId: string): Promise<InferenceResponse | null> => {
         if (!projectId) return null;
         const formData = new FormData();
-        formData.append('conf_threshold', '0.25');
+        formData.append('conf_threshold', DETECTION_CONF_THRESHOLD);
+        formData.append('iou_threshold', DETECTION_IOU_THRESHOLD);
+        formData.append('agnostic_nms', DETECTION_AGNOSTIC_NMS);
 
         const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/variants/${variantId}/infer/history/${imageId}`, {
             method: 'POST',
@@ -324,7 +364,7 @@ export const ProjectTest = () => {
             });
             if (!res.ok) {
                 const message = await res.text();
-                throw new Error(message || 'Falha ao salvar feedback em lote');
+                throw new Error(message || 'Failed to save batch feedback');
             }
 
             setHistory((prev) => prev.map((item) => {
@@ -345,11 +385,11 @@ export const ProjectTest = () => {
     const runQueuedBatch = useCallback(async () => {
         if (!projectId) return;
         if (queue.length === 0) {
-            setNotice({ kind: 'error', text: 'Adicione imagens ou pasta antes de iniciar a validacao.' });
+            setNotice({ kind: 'error', text: 'Add images or a folder before starting validation.' });
             return;
         }
         if (variants.length === 0) {
-            setNotice({ kind: 'error', text: 'Nao existem modelos treinados para validar.' });
+            setNotice({ kind: 'error', text: 'There are no trained models to validate.' });
             return;
         }
 
@@ -363,7 +403,7 @@ export const ProjectTest = () => {
             total: queue.length,
             done: 0,
             errors: 0,
-            message: `Iniciando upload e inferencia com ${variants[0].name}...`
+            message: `Starting upload and inference with ${variants[0].name}...`
         });
 
         let errorCount = 0;
@@ -385,7 +425,7 @@ export const ProjectTest = () => {
                         ...prev,
                         done: prev.done + 1,
                         errors: errorCount,
-                        message: `Processando imagens de entrada (${prev.done + 1}/${prev.total})`
+                        message: `Processing input images (${prev.done + 1}/${prev.total})`
                     };
                 });
             }
@@ -400,7 +440,7 @@ export const ProjectTest = () => {
             return {
                 ...prev,
                 total: prev.total + extraOps,
-                message: 'Executando validacao cruzada nos demais modelos...'
+                message: 'Running cross-validation on remaining models...'
             };
         });
 
@@ -434,7 +474,7 @@ export const ProjectTest = () => {
             return {
                 ...prev,
                 active: false,
-                message: `Validacao finalizada: ${prev.done}/${prev.total} operacoes.`
+                message: `Validation finished: ${prev.done}/${prev.total} operations.`
             };
         });
 
@@ -443,8 +483,8 @@ export const ProjectTest = () => {
         setNotice({
             kind: errorCount > 0 ? 'error' : 'success',
             text: errorCount > 0
-                ? `Validacao finalizada com ${errorCount} erro(s).`
-                : 'Validacao em massa concluida com sucesso.'
+                ? `Validation finished with ${errorCount} error(s).`
+                : 'Bulk validation completed successfully.'
         });
     }, [
         projectId,
@@ -460,7 +500,7 @@ export const ProjectTest = () => {
     const runMissingCoverage = useCallback(async () => {
         if (!projectId) return;
         if (history.length === 0 || variants.length === 0) {
-            setNotice({ kind: 'info', text: 'Nao ha historico suficiente para validacao pendente.' });
+            setNotice({ kind: 'info', text: 'Not enough history for pending validation.' });
             return;
         }
 
@@ -476,7 +516,7 @@ export const ProjectTest = () => {
 
         const totalOps = Array.from(byVariant.values()).reduce((sum, ids) => sum + ids.length, 0);
         if (totalOps === 0) {
-            setNotice({ kind: 'success', text: 'Todos os modelos ja foram validados nas imagens do historico.' });
+            setNotice({ kind: 'success', text: 'All models were already validated on history images.' });
             return;
         }
 
@@ -485,7 +525,7 @@ export const ProjectTest = () => {
             total: totalOps,
             done: 0,
             errors: 0,
-            message: 'Executando validacao pendente no historico...'
+            message: 'Running pending validation on history...'
         });
 
         let errorCount = 0;
@@ -515,13 +555,13 @@ export const ProjectTest = () => {
             }
         }
 
-        setBatchProgress((prev) => prev ? { ...prev, active: false, message: 'Validacao pendente concluida.' } : prev);
+        setBatchProgress((prev) => prev ? { ...prev, active: false, message: 'Pending validation completed.' } : prev);
         await loadHistory();
         setNotice({
             kind: errorCount > 0 ? 'error' : 'success',
             text: errorCount > 0
-                ? `Validacao pendente concluida com ${errorCount} erro(s).`
-                : 'Modelos pendentes validados com sucesso no historico.'
+                ? `Pending validation completed with ${errorCount} error(s).`
+                : 'Pending models validated successfully on history.'
         });
     }, [projectId, history, variants, inferHistoryImage, upsertHistoryItem, loadHistory]);
 
@@ -535,7 +575,7 @@ export const ProjectTest = () => {
             }
         } catch (error) {
             console.error(error);
-            setNotice({ kind: 'error', text: `Falha ao validar ${variantId} para a imagem selecionada.` });
+            setNotice({ kind: 'error', text: `Failed to validate ${variantId} for the selected image.` });
         } finally {
             setSingleRunBusy(null);
         }
@@ -556,6 +596,40 @@ export const ProjectTest = () => {
         return activeHistory.variants?.[focusVariantId] || null;
     }, [activeHistory, focusVariantId]);
 
+    const currentVariantIdSet = useMemo(
+        () => new Set(variants.map((variant) => variant.id)),
+        [variants]
+    );
+
+    const variantNameMap = useMemo(() => {
+        const map = new Map<string, string>();
+        variants.forEach((variant) => map.set(variant.id, variant.name));
+        return map;
+    }, [variants]);
+
+    const activeHistoryCurrentEntries = useMemo(() => {
+        if (!activeHistory?.variants) return [] as Array<[string, HistoryVariantResult]>;
+        return Object.entries(activeHistory.variants)
+            .filter(([variantId]) => currentVariantIdSet.has(variantId)) as Array<[string, HistoryVariantResult]>;
+    }, [activeHistory, currentVariantIdSet]);
+
+    const variantColorMap = useMemo(() => {
+        const map = new Map<string, string>();
+        variants.forEach((variant, index) => {
+            map.set(variant.id, VARIANT_COLOR_PALETTE[index % VARIANT_COLOR_PALETTE.length]);
+        });
+        return map;
+    }, [variants]);
+
+    const activeVariantColor = useMemo(
+        () => variantColorMap.get(focusVariantId) || '#2fb8ff',
+        [variantColorMap, focusVariantId]
+    );
+
+    useEffect(() => {
+        setHiddenOverlayVariantIds((prev) => prev.filter((variantId) => currentVariantIdSet.has(variantId)));
+    }, [currentVariantIdSet]);
+
     const drawOverlay = useCallback(() => {
         const img = imgRef.current;
         const canvas = canvasRef.current;
@@ -564,42 +638,75 @@ export const ProjectTest = () => {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const displayWidth = img.clientWidth || img.width;
+        const displayHeight = img.clientHeight || img.height;
+        if (displayWidth <= 0 || displayHeight <= 0) return;
 
-        const result = activeVariantResult;
-        if (!result || result.task === 'classify') {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.round(displayWidth * dpr);
+        canvas.height = Math.round(displayHeight * dpr);
+        canvas.style.width = `${displayWidth}px`;
+        canvas.style.height = `${displayHeight}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+        if (!activeHistory) {
             return;
         }
 
-        const scaleX = img.width / (img.naturalWidth || img.width || 1);
-        const scaleY = img.height / (img.naturalHeight || img.height || 1);
+        const scaleX = displayWidth / (img.naturalWidth || displayWidth || 1);
+        const scaleY = displayHeight / (img.naturalHeight || displayHeight || 1);
 
-        result.predictions.forEach((prediction) => {
-            if (!prediction.box) return;
-            const [x1, y1, x2, y2] = prediction.box;
-            const sx1 = x1 * scaleX;
-            const sy1 = y1 * scaleY;
-            const sw = (x2 - x1) * scaleX;
-            const sh = (y2 - y1) * scaleY;
+        activeHistoryCurrentEntries.forEach(([variantId, variantResult]) => {
+            if (variantResult.task === 'classify') return;
+            if (hiddenOverlayVariantIds.includes(variantId)) return;
+            const variantColor = variantColorMap.get(variantId) || '#2fb8ff';
+            const variantName = variantNameMap.get(variantId) || variantId;
 
-            ctx.strokeStyle = '#2fb8ff';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(sx1, sy1, sw, sh);
+            variantResult.predictions.forEach((prediction) => {
+                if (!prediction.box) return;
+                const [x1, y1, x2, y2] = prediction.box;
+                const sx1 = x1 * scaleX;
+                const sy1 = y1 * scaleY;
+                const sw = (x2 - x1) * scaleX;
+                const sh = (y2 - y1) * scaleY;
 
-            const label = `${prediction.class_name} ${(prediction.confidence * 100).toFixed(1)}%`;
-            ctx.font = '12px Sora, sans-serif';
-            const textWidth = ctx.measureText(label).width;
-            ctx.fillStyle = '#2fb8ff';
-            ctx.fillRect(sx1, Math.max(0, sy1 - 20), textWidth + 10, 18);
-            ctx.fillStyle = '#0c141a';
-            ctx.fillText(label, sx1 + 5, Math.max(11, sy1 - 6));
+                ctx.strokeStyle = variantColor;
+                ctx.lineWidth = variantId === focusVariantId ? 2.5 : 1.8;
+                ctx.strokeRect(sx1, sy1, sw, sh);
+
+                const label = `${variantName}: ${prediction.class_name} ${(prediction.confidence * 100).toFixed(1)}%`;
+                ctx.font = '12px Sora, sans-serif';
+                const textWidth = ctx.measureText(label).width;
+                ctx.fillStyle = variantColor;
+                ctx.fillRect(sx1, Math.max(0, sy1 - 20), textWidth + 10, 18);
+                ctx.fillStyle = '#0c141a';
+                ctx.fillText(label, sx1 + 5, Math.max(11, sy1 - 6));
+            });
         });
-    }, [activeVariantResult]);
+    }, [activeHistory, activeHistoryCurrentEntries, focusVariantId, hiddenOverlayVariantIds, variantColorMap, variantNameMap]);
 
     useEffect(() => {
         drawOverlay();
+    }, [drawOverlay, activeImageSrc]);
+
+    useEffect(() => {
+        const img = imgRef.current;
+        if (!img) return;
+
+        const onResize = () => drawOverlay();
+        window.addEventListener('resize', onResize);
+
+        let observer: ResizeObserver | null = null;
+        if (typeof ResizeObserver !== 'undefined') {
+            observer = new ResizeObserver(() => drawOverlay());
+            observer.observe(img);
+        }
+
+        return () => {
+            window.removeEventListener('resize', onResize);
+            observer?.disconnect();
+        };
     }, [drawOverlay, activeImageSrc]);
 
     const isBinaryProject = datasetClasses.length === 2;
@@ -640,7 +747,7 @@ export const ProjectTest = () => {
         if (!activeHistory) return [] as { key: string; label: string; variantIds: string[]; confidence: number }[];
         const groups = new Map<string, { key: string; label: string; variantIds: string[]; confidence: number }>();
 
-        Object.entries(activeHistory.variants || {}).forEach(([variantId, variantResult]) => {
+        activeHistoryCurrentEntries.forEach(([variantId, variantResult]) => {
             const identity = getPredictionIdentity(variantResult);
             if (!groups.has(identity.key)) {
                 groups.set(identity.key, {
@@ -659,7 +766,7 @@ export const ProjectTest = () => {
         return Array.from(groups.values())
             .filter((group) => group.key !== 'none')
             .sort((a, b) => b.variantIds.length - a.variantIds.length);
-    }, [activeHistory]);
+    }, [activeHistory, activeHistoryCurrentEntries]);
 
     const applyPropagationFeedback = useCallback(async (variantId: string, verdict: Verdict) => {
         if (!activeHistory) return;
@@ -670,7 +777,7 @@ export const ProjectTest = () => {
         const sourceIdentity = getPredictionIdentity(sourceResult);
         const updatesMap = new Map<string, Verdict>();
 
-        Object.entries(activeHistory.variants || {}).forEach(([candidateVariantId, candidateResult]) => {
+        activeHistoryCurrentEntries.forEach(([candidateVariantId, candidateResult]) => {
             const candidateIdentity = getPredictionIdentity(candidateResult);
             if (candidateIdentity.key === sourceIdentity.key) {
                 updatesMap.set(candidateVariantId, verdict);
@@ -678,13 +785,13 @@ export const ProjectTest = () => {
         });
 
         const distinctPredictedKeys = new Set(
-            Object.values(activeHistory.variants || {})
-                .map((candidateResult) => getPredictionIdentity(candidateResult).key)
+            activeHistoryCurrentEntries
+                .map(([, candidateResult]) => getPredictionIdentity(candidateResult).key)
                 .filter((key) => key !== 'none')
         );
 
         if (isBinaryProject && verdict && distinctPredictedKeys.size === 2) {
-            Object.entries(activeHistory.variants || {}).forEach(([candidateVariantId, candidateResult]) => {
+            activeHistoryCurrentEntries.forEach(([candidateVariantId, candidateResult]) => {
                 const candidateIdentity = getPredictionIdentity(candidateResult);
                 if (candidateIdentity.key === sourceIdentity.key) return;
                 if (candidateIdentity.key === 'none') return;
@@ -701,16 +808,16 @@ export const ProjectTest = () => {
             await applyFeedbackBatch(activeHistory.image_id, updates);
         } catch (error) {
             console.error(error);
-            setNotice({ kind: 'error', text: 'Falha ao propagar feedback da inferencia.' });
+            setNotice({ kind: 'error', text: 'Failed to propagate inference feedback.' });
         }
-    }, [activeHistory, applyFeedbackBatch, isBinaryProject]);
+    }, [activeHistory, activeHistoryCurrentEntries, applyFeedbackBatch, isBinaryProject]);
 
     const markClassAsCorrect = useCallback(async (classKey: string) => {
         if (!activeHistory) return;
         if (classKey === 'none') return;
 
         const updatesMap = new Map<string, Verdict>();
-        Object.entries(activeHistory.variants || {}).forEach(([variantId, variantResult]) => {
+        activeHistoryCurrentEntries.forEach(([variantId, variantResult]) => {
             const identity = getPredictionIdentity(variantResult);
             if (identity.key === classKey) {
                 updatesMap.set(variantId, 'correct');
@@ -718,13 +825,13 @@ export const ProjectTest = () => {
         });
 
         const distinctPredictedKeys = new Set(
-            Object.values(activeHistory.variants || {})
-                .map((variantResult) => getPredictionIdentity(variantResult).key)
+            activeHistoryCurrentEntries
+                .map(([, variantResult]) => getPredictionIdentity(variantResult).key)
                 .filter((key) => key !== 'none')
         );
 
         if (isBinaryProject && distinctPredictedKeys.size === 2) {
-            Object.entries(activeHistory.variants || {}).forEach(([variantId, variantResult]) => {
+            activeHistoryCurrentEntries.forEach(([variantId, variantResult]) => {
                 const identity = getPredictionIdentity(variantResult);
                 if (identity.key !== classKey && identity.key !== 'none') {
                     updatesMap.set(variantId, 'incorrect');
@@ -741,41 +848,82 @@ export const ProjectTest = () => {
             await applyFeedbackBatch(activeHistory.image_id, updates);
         } catch (error) {
             console.error(error);
-            setNotice({ kind: 'error', text: 'Falha ao aplicar validacao por classe.' });
+            setNotice({ kind: 'error', text: 'Failed to apply class-level validation.' });
         }
-    }, [activeHistory, applyFeedbackBatch, isBinaryProject]);
+    }, [activeHistory, activeHistoryCurrentEntries, applyFeedbackBatch, isBinaryProject]);
 
     const historyWithCoverage = useMemo(() => {
-        const totalModels = Math.max(variants.length, 1);
+        const totalModels = variants.length;
         return history.map((item) => {
-            const testedModels = Object.keys(item.variants || {}).length;
-            const evaluatedModels = Object.values(item.variants || {}).filter((variantResult) =>
-                variantResult?.feedback === 'correct' || variantResult?.feedback === 'incorrect'
-            ).length;
-            const expectedModels = variants.length;
+            const testedModels = variants.reduce((count, variant) => (
+                item.variants?.[variant.id] ? count + 1 : count
+            ), 0);
+            const evaluatedModels = variants.reduce((count, variant) => {
+                const verdict = item.variants?.[variant.id]?.feedback;
+                return verdict === 'correct' || verdict === 'incorrect' ? count + 1 : count;
+            }, 0);
+            const expectedModels = totalModels;
             const isDone = expectedModels > 0 && evaluatedModels >= expectedModels;
             return {
                 ...item,
                 testedModels,
                 evaluatedModels,
                 isDone,
-                coveragePct: (testedModels / totalModels) * 100
+                coveragePct: totalModels > 0 ? (testedModels / totalModels) * 100 : 0
             };
         });
-    }, [history, variants.length]);
+    }, [history, variants, variants.length]);
 
     const activeCoverage = useMemo(() => {
         if (!activeHistory) return { tested: 0, total: variants.length };
         return {
-            tested: Object.keys(activeHistory.variants || {}).length,
+            tested: activeHistoryCurrentEntries.length,
             total: variants.length
         };
-    }, [activeHistory, variants.length]);
+    }, [activeHistory, activeHistoryCurrentEntries, variants.length]);
 
     const activeProgressPct = useMemo(() => {
         if (activeCoverage.total === 0) return 0;
         return (activeCoverage.tested / activeCoverage.total) * 100;
     }, [activeCoverage]);
+
+    const activeHistoryIndex = useMemo(() => {
+        if (!activeHistoryId) return -1;
+        return historyWithCoverage.findIndex((item) => item.image_id === activeHistoryId);
+    }, [historyWithCoverage, activeHistoryId]);
+
+    const goToPreviousHistoryImage = useCallback(() => {
+        if (activeHistoryIndex <= 0) return;
+        const previous = historyWithCoverage[activeHistoryIndex - 1];
+        if (previous) {
+            setActiveHistoryId(previous.image_id);
+        }
+    }, [activeHistoryIndex, historyWithCoverage]);
+
+    const goToNextHistoryImage = useCallback(() => {
+        if (activeHistoryIndex < 0 || activeHistoryIndex >= historyWithCoverage.length - 1) return;
+        const next = historyWithCoverage[activeHistoryIndex + 1];
+        if (next) {
+            setActiveHistoryId(next.image_id);
+        }
+    }, [activeHistoryIndex, historyWithCoverage]);
+
+    useEffect(() => {
+        const handleArrowNav = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+            if (isEditableTarget(event.target)) return;
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                goToPreviousHistoryImage();
+            } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                event.preventDefault();
+                goToNextHistoryImage();
+            }
+        };
+
+        window.addEventListener('keydown', handleArrowNav);
+        return () => window.removeEventListener('keydown', handleArrowNav);
+    }, [goToPreviousHistoryImage, goToNextHistoryImage]);
 
     return (
         <div className="project-test animate-fade-in w-full max-w-none space-y-6 pb-16">
@@ -786,7 +934,7 @@ export const ProjectTest = () => {
                     </div>
                     <div>
                         <h2 className="text-3xl font-bold">Mass Validation Playground</h2>
-                        <p className="text-secondary">Valide varias imagens e pastas contra todos os modelos treinados.</p>
+                        <p className="text-secondary">Validate multiple images and folders against all trained models.</p>
                     </div>
                 </div>
                 <StatusPill
@@ -803,7 +951,7 @@ export const ProjectTest = () => {
                         <Target size={14} />
                     </div>
                     <div className="mt-2 text-2xl font-mono">{variants.length}</div>
-                    <div className="mt-1 text-xs text-secondary">{neverValidatedVariants.length} sem validacao</div>
+                    <div className="mt-1 text-xs text-secondary">{neverValidatedVariants.length} without validation</div>
                 </Card>
 
                 <Card className="border border-graphite-700/70 bg-graphite-900/55 p-4">
@@ -812,7 +960,7 @@ export const ProjectTest = () => {
                         <Camera size={14} />
                     </div>
                     <div className="mt-2 text-2xl font-mono">{history.length}</div>
-                    <div className="mt-1 text-xs text-secondary">Imagens no repositorio de validacao</div>
+                    <div className="mt-1 text-xs text-secondary">Images in the validation repository</div>
                 </Card>
 
                 <Card className="border border-graphite-700/70 bg-graphite-900/55 p-4">
@@ -821,7 +969,7 @@ export const ProjectTest = () => {
                         <Clock3 size={14} />
                     </div>
                     <div className="mt-2 text-2xl font-mono">{missingMatrixCount}</div>
-                    <div className="mt-1 text-xs text-secondary">Combinacoes imagem x modelo pendentes</div>
+                    <div className="mt-1 text-xs text-secondary">Pending image x model combinations</div>
                 </Card>
 
                 <Card className={`border p-4 ${isBinaryProject ? 'border-accent-success/35 bg-accent-success/5' : 'border-graphite-700/70 bg-graphite-900/55'}`}>
@@ -832,8 +980,11 @@ export const ProjectTest = () => {
                     <div className="mt-2 text-sm font-semibold">{isBinaryProject ? 'Binary propagation ON' : 'Multi-class mode'}</div>
                     <div className="mt-1 text-xs text-secondary">
                         {isBinaryProject
-                            ? 'Acerto/erro propaga automaticamente para a classe oposta.'
-                            : 'Propagacao automatica da classe oposta desativada (3+ classes).'}
+                            ? 'Correct/wrong feedback is automatically propagated to the opposite class.'
+                            : 'Automatic opposite-class propagation disabled (3+ classes).'}
+                    </div>
+                    <div className="mt-1 text-xs text-secondary">
+                        From the second model onward, feedback is auto-assigned when this image already has a validated reference.
                     </div>
                 </Card>
             </div>
@@ -878,7 +1029,7 @@ export const ProjectTest = () => {
             )}
 
             <div className="grid min-h-0 grid-cols-1 gap-6 xl:grid-cols-12 xl:items-stretch">
-                <div className="flex min-h-0 flex-col gap-6 xl:col-span-4">
+                <div className="flex min-h-0 flex-col gap-6 xl:col-span-4 xl:max-h-[calc(100vh-11rem)]">
                     <Card className="space-y-4">
                         <div className="flex items-center gap-2 text-xs uppercase tracking-[0.32em] text-secondary">
                             <Upload size={14} />
@@ -933,7 +1084,7 @@ export const ProjectTest = () => {
                                 <span>{queue.length}</span>
                             </div>
                             {queue.length === 0 ? (
-                                <div className="mt-2 text-xs text-secondary">Nenhuma imagem adicionada.</div>
+                                <div className="mt-2 text-xs text-secondary">No images added.</div>
                             ) : (
                                 <div className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1 text-xs">
                                     {queue.slice(0, 40).map((item) => (
@@ -1005,18 +1156,18 @@ export const ProjectTest = () => {
                                             <div className={`h-full ${isNew ? 'bg-accent-warning' : 'bg-accent-primary'}`} style={{ width: `${coveragePct}%` }} />
                                         </div>
                                         <div className="mt-1 text-[11px] text-secondary">
-                                            {isNew ? 'Novo modelo sem validacao.' : `Cobertura ${asPercent(coveragePct)}`}
+                                            {isNew ? 'New model without validation.' : `Coverage ${asPercent(coveragePct)}`}
                                         </div>
                                     </div>
                                 );
                             })}
                             {variants.length === 0 && (
-                                <div className="text-sm text-secondary">Nenhum modelo treinado encontrado.</div>
+                                <div className="text-sm text-secondary">No trained models found.</div>
                             )}
                         </div>
                     </Card>
 
-                    <Card className="flex min-h-0 flex-1 flex-col space-y-3">
+                    <Card className="flex min-h-0 flex-1 flex-col space-y-3 overflow-hidden xl:min-h-[320px]">
                         <div className="flex items-center justify-between">
                             <div className="text-xs uppercase tracking-[0.32em] text-secondary">Validation History</div>
                             <Button size="sm" variant="ghost" onClick={loadHistory} disabled={historyLoading || Boolean(batchProgress?.active)}>
@@ -1026,9 +1177,9 @@ export const ProjectTest = () => {
                         </div>
 
                         {historyWithCoverage.length === 0 ? (
-                            <div className="text-sm text-secondary">Nenhuma imagem validada ainda.</div>
+                            <div className="text-sm text-secondary">No validated images yet.</div>
                         ) : (
-                            <div className="grid min-h-0 flex-1 content-start grid-cols-3 gap-2 overflow-y-auto pr-1">
+                            <div className="grid min-h-0 flex-1 content-start grid-cols-3 gap-2 overflow-y-auto pr-2">
                                 {historyWithCoverage.map((item) => (
                                     <button
                                         key={item.image_id}
@@ -1094,21 +1245,23 @@ export const ProjectTest = () => {
                                         <div className="absolute inset-0 flex items-center justify-center text-center text-secondary">
                                             <div>
                                                 <Camera size={40} className="mx-auto mb-3 opacity-70" />
-                                                <div>Selecione uma imagem no historico para validar resultados.</div>
+                                                <div>Select an image in history to validate results.</div>
                                             </div>
                                         </div>
                                     )}
 
                                     {activeImageSrc && (
                                         <div className="relative flex h-full min-h-[500px] items-center justify-center">
-                                            <img
-                                                ref={imgRef}
-                                                src={activeImageSrc}
-                                                alt={activeHistory?.original_name || activeHistory?.image_id}
-                                                className="max-h-[700px] max-w-full rounded object-contain"
-                                                onLoad={drawOverlay}
-                                            />
-                                            <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" />
+                                            <div className="relative inline-block leading-none">
+                                                <img
+                                                    ref={imgRef}
+                                                    src={activeImageSrc}
+                                                    alt={activeHistory?.original_name || activeHistory?.image_id}
+                                                    className="block max-h-[700px] max-w-full rounded object-contain"
+                                                    onLoad={drawOverlay}
+                                                />
+                                                <canvas ref={canvasRef} className="pointer-events-none absolute left-0 top-0 h-full w-full" />
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -1126,12 +1279,26 @@ export const ProjectTest = () => {
                                     <div className="mb-2 text-xs uppercase tracking-[0.24em] text-secondary">Prediction Overview</div>
                                     {activeVariantResult ? (
                                         <>
+                                            <div className="mb-2 flex items-center gap-2">
+                                                <span
+                                                    className="inline-block h-2.5 w-2.5 rounded-full"
+                                                    style={{ backgroundColor: activeVariantColor }}
+                                                    title="Active model color"
+                                                />
+                                                <span className="text-[11px] uppercase tracking-[0.24em] text-secondary">
+                                                    {variants.find((variant) => variant.id === focusVariantId)?.name || 'Model'}
+                                                </span>
+                                            </div>
                                             <div className="text-sm font-semibold">Top: {getPredictionIdentity(activeVariantResult).label}</div>
                                             <div className="mt-1 text-xs text-secondary">Confidence {(getPredictionIdentity(activeVariantResult).confidence * 100).toFixed(1)}%</div>
                                             <div className="mt-1 text-xs text-secondary">Latency {formatLatency(activeVariantResult.latency_ms)}</div>
                                             <div className="mt-3 space-y-1 text-xs">
                                                 {activeVariantResult.predictions.slice(0, 5).map((prediction, index) => (
-                                                    <div key={`${prediction.class_id}-${index}`} className="flex items-center justify-between rounded border border-graphite-700/70 bg-graphite-950/50 px-2 py-1">
+                                                    <div
+                                                        key={`${prediction.class_id}-${index}`}
+                                                        className="flex items-center justify-between rounded border border-graphite-700/70 bg-graphite-950/50 px-2 py-1"
+                                                        style={{ borderColor: hexToRgba(activeVariantColor, 0.4) }}
+                                                    >
                                                         <span>{prediction.class_name}</span>
                                                         <span className="font-mono">{(prediction.confidence * 100).toFixed(1)}%</span>
                                                     </div>
@@ -1139,14 +1306,14 @@ export const ProjectTest = () => {
                                             </div>
                                         </>
                                     ) : (
-                                        <div className="text-xs text-secondary">Este modelo ainda nao foi executado para a imagem selecionada.</div>
+                                        <div className="text-xs text-secondary">This model has not been run for the selected image yet.</div>
                                     )}
                                 </div>
 
                                 <div className="rounded-xl border border-graphite-700/70 bg-graphite-900/55 p-3">
                                     <div className="mb-2 text-xs uppercase tracking-[0.24em] text-secondary">Class Consensus</div>
                                     {activeImageGroups.length === 0 ? (
-                                        <div className="text-xs text-secondary">Sem inferencias para consolidar.</div>
+                                        <div className="text-xs text-secondary">No inferences to consolidate.</div>
                                     ) : (
                                         <div className="flex flex-wrap gap-2">
                                             {activeImageGroups.map((group) => (
@@ -1156,7 +1323,7 @@ export const ProjectTest = () => {
                                                     className="tab-button tab-button-active"
                                                     onClick={() => markClassAsCorrect(group.key)}
                                                     disabled={feedbackBusy}
-                                                    title="Marcar esta classe como correta para os modelos que previram este resultado"
+                                                    title="Mark this class as correct for models that predicted this result"
                                                 >
                                                     {group.label} ({group.variantIds.length})
                                                 </button>
@@ -1165,7 +1332,7 @@ export const ProjectTest = () => {
                                     )}
                                     {isBinaryProject && (
                                         <div className="mt-2 text-xs text-secondary">
-                                            Projeto binario: ao marcar uma classe correta, a outra classe e marcada como incorreta automaticamente.
+                                            Binary project: when one class is marked as correct, the other class is automatically marked as incorrect.
                                         </div>
                                     )}
                                 </div>
@@ -1186,7 +1353,7 @@ export const ProjectTest = () => {
 
                         {!activeHistory ? (
                             <div className="rounded border border-graphite-700/70 bg-graphite-900/55 p-4 text-sm text-secondary">
-                                Selecione uma imagem no historico para avaliar cada modelo.
+                                Select an image in history to evaluate each model.
                             </div>
                         ) : (
                             <div className="overflow-x-auto">
@@ -1207,13 +1374,22 @@ export const ProjectTest = () => {
                                             const feedback = variantResult?.feedback || null;
                                             const neverValidated = (modelCoverage[variant.id] || 0) === 0;
                                             const runningSingle = singleRunBusy === variant.id;
+                                            const variantColor = variantColorMap.get(variant.id) || '#2fb8ff';
+                                            const isDetectionResult = variantResult?.task === 'detect';
+                                            const isHidden = hiddenOverlayVariantIds.includes(variant.id);
                                             return (
                                                 <tr key={variant.id} className="border-b border-graphite-700/30">
                                                     <td className="px-3 py-3">
                                                         <div className="flex items-center gap-2">
+                                                            <span
+                                                                className="inline-block h-2.5 w-2.5 rounded-full"
+                                                                style={{ backgroundColor: variantColor }}
+                                                                title="Model color"
+                                                            />
                                                             <button
                                                                 type="button"
-                                                                className={`text-left ${focusVariantId === variant.id ? 'text-accent-primary' : 'text-bone'}`}
+                                                                className="text-left"
+                                                                style={{ color: focusVariantId === variant.id ? variantColor : '#f6f2de' }}
                                                                 onClick={() => setFocusVariantId(variant.id)}
                                                             >
                                                                 {variant.name}
@@ -1228,7 +1404,7 @@ export const ProjectTest = () => {
                                                     <td className="px-3 py-3">
                                                         {variantResult ? (
                                                             <div className="text-xs">
-                                                                <div className="font-semibold">{identity.label}</div>
+                                                                <div className="font-semibold" style={{ color: variantColor }}>{identity.label}</div>
                                                                 <div className="text-secondary">{(identity.confidence * 100).toFixed(1)}%</div>
                                                             </div>
                                                         ) : (
@@ -1264,7 +1440,25 @@ export const ProjectTest = () => {
                                                     </td>
                                                     <td className="px-3 py-3 text-right">
                                                         {variantResult ? (
-                                                            <span className="text-xs text-secondary">{formatTime(variantResult.tested_at)}</span>
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                {isDetectionResult && (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="rounded border border-graphite-700/70 bg-graphite-900/70 p-1.5 text-secondary transition hover:border-accent-primary/60 hover:text-accent-primary"
+                                                                        title={isHidden ? 'Show this model bounding boxes' : 'Hide this model bounding boxes'}
+                                                                        onClick={() => {
+                                                                            setHiddenOverlayVariantIds((prev) => (
+                                                                                prev.includes(variant.id)
+                                                                                    ? prev.filter((id) => id !== variant.id)
+                                                                                    : [...prev, variant.id]
+                                                                            ));
+                                                                        }}
+                                                                    >
+                                                                        {isHidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                                    </button>
+                                                                )}
+                                                                <span className="text-xs text-secondary">{formatTime(variantResult.tested_at)}</span>
+                                                            </div>
                                                         ) : (
                                                             <Button
                                                                 size="sm"
@@ -1292,10 +1486,11 @@ export const ProjectTest = () => {
                         )}
 
                         <div className="mt-4 rounded border border-graphite-700/70 bg-graphite-900/60 px-3 py-2 text-xs text-secondary">
-                            <div className="font-semibold text-bone mb-1">Regras de propagacao ativas</div>
-                            <div>1) Ao marcar um resultado como correto/incorreto, todos os modelos que previram a mesma classe para esta imagem recebem o mesmo feedback.</div>
-                            <div>2) Em projeto com 2 classes, a classe oposta recebe feedback inverso automaticamente.</div>
-                            <div>3) Em projeto com 3 ou mais classes, a classe oposta nao e marcada automaticamente.</div>
+                            <div className="font-semibold text-bone mb-1">Active propagation rules</div>
+                            <div>1) When marking a result as correct/incorrect, all models that predicted the same class for this image receive the same feedback.</div>
+                            <div>2) In a 2-class project, the opposite class automatically receives inverse feedback.</div>
+                            <div>3) In projects with 3 or more classes, the opposite class is not marked automatically.</div>
+                            <div>4) New model runs auto-receive feedback when this image already has at least one correct validated prediction.</div>
                         </div>
                     </Card>
                 </div>

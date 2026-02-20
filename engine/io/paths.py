@@ -17,6 +17,12 @@ def get_workspace_root() -> Path:
 def get_projects_root() -> Path:
     return get_workspace_root() / "projects"
 
+def get_settings_dir() -> Path:
+    return get_workspace_root() / "settings"
+
+def get_llm_settings_path() -> Path:
+    return get_settings_dir() / "llm_settings.json"
+
 def get_project_dir(project_id: str) -> Path:
     return get_projects_root() / project_id
 

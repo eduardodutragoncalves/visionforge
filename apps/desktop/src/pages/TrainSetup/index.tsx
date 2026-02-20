@@ -71,6 +71,8 @@ interface ValidationSummary {
     last_tested_at: string | null;
 }
 
+type NumericConfigField = 'epochs' | 'img_size' | 'batch_size';
+
 const isInProgressStatus = (status?: string) => {
     const normalized = String(status || '').toLowerCase();
     return normalized === 'queued' || normalized === 'running' || normalized === 'starting' || normalized === 'training';
@@ -78,10 +80,10 @@ const isInProgressStatus = (status?: string) => {
 
 const getRunStatusMeta = (status?: string): { label: string; pill: StatusType; icon: typeof Clock3 } => {
     const normalized = String(status || '').toLowerCase();
-    if (normalized === 'completed') return { label: 'Concluido', pill: 'success', icon: CheckCircle2 };
-    if (normalized === 'failed' || normalized === 'error') return { label: 'Falhou', pill: 'error', icon: AlertTriangle };
-    if (isInProgressStatus(normalized)) return { label: 'Em progresso', pill: 'running', icon: Clock3 };
-    return { label: normalized || 'Desconhecido', pill: 'idle', icon: Activity };
+    if (normalized === 'completed') return { label: 'Completed', pill: 'success', icon: CheckCircle2 };
+    if (normalized === 'failed' || normalized === 'error') return { label: 'Failed', pill: 'error', icon: AlertTriangle };
+    if (isInProgressStatus(normalized)) return { label: 'In progress', pill: 'running', icon: Clock3 };
+    return { label: normalized || 'Unknown', pill: 'idle', icon: Activity };
 };
 
 const normalizeValidation = (validation?: VariantSummary['validation']): ValidationSummary => {
@@ -111,6 +113,21 @@ const formatPct = (value?: number | null, digits = 1) => {
     if (typeof value !== 'number' || Number.isNaN(value)) return '—';
     return `${value.toFixed(digits)}%`;
 };
+
+const resolveDatasetFormatByFramework = (framework: string) => {
+    if (framework === 'ultralytics') return 'yolo';
+    return 'yolo';
+};
+
+const parseIntegerInput = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.trunc(parsed);
+};
+
+const clampPercentage = (value: number) => Math.max(0, Math.min(100, value));
 
 export const TrainSetup = () => {
     const { projectId } = useParams();
@@ -147,6 +164,31 @@ export const TrainSetup = () => {
     const [splitTrainPct, setSplitTrainPct] = useState(80);
     const [splitValPct, setSplitValPct] = useState(20);
     const [splitTestPct, setSplitTestPct] = useState(0);
+    const datasetFormatForTraining = useMemo(
+        () => resolveDatasetFormatByFramework(config.framework),
+        [config.framework]
+    );
+
+    const handleConfigNumberChange = useCallback((field: NumericConfigField, rawValue: string, min = 1) => {
+        const parsed = parseIntegerInput(rawValue);
+        if (parsed === null) return;
+        setConfig((prev) => ({ ...prev, [field]: Math.max(min, parsed) }));
+    }, []);
+
+    const handleSplitChange = useCallback((split: 'train' | 'val' | 'test', rawValue: string) => {
+        const parsed = parseIntegerInput(rawValue);
+        if (parsed === null) return;
+        const next = clampPercentage(parsed);
+        if (split === 'train') {
+            setSplitTrainPct(next);
+            return;
+        }
+        if (split === 'val') {
+            setSplitValPct(next);
+            return;
+        }
+        setSplitTestPct(next);
+    }, []);
 
     const gpuDevices = gpuSelection === 'dual' ? [0, 1] : [gpuSelection === 'gpu1' ? 1 : 0];
     const vramScale = gpuSelection === 'dual' ? 2 : 1;
@@ -343,9 +385,26 @@ export const TrainSetup = () => {
             ];
         }
         return [
+            { value: 'yolo26n.pt', label: 'YOLO26 Nano' },
+            { value: 'yolo26s.pt', label: 'YOLO26 Small' },
+            { value: 'yolo26m.pt', label: 'YOLO26 Medium' },
+            { value: 'yolo26l.pt', label: 'YOLO26 Large' },
+            { value: 'yolo26x.pt', label: 'YOLO26 XLarge' },
+            { value: 'yolo11n.pt', label: 'YOLO11 Nano' },
+            { value: 'yolo11s.pt', label: 'YOLO11 Small' },
+            { value: 'yolo11m.pt', label: 'YOLO11 Medium' },
+            { value: 'yolo11l.pt', label: 'YOLO11 Large' },
+            { value: 'yolo11x.pt', label: 'YOLO11 XLarge' },
             { value: 'yolov8n.pt', label: 'YOLOv8 Nano' },
             { value: 'yolov8s.pt', label: 'YOLOv8 Small' },
-            { value: 'yolov8m.pt', label: 'YOLOv8 Medium' }
+            { value: 'yolov8m.pt', label: 'YOLOv8 Medium' },
+            { value: 'yolov8l.pt', label: 'YOLOv8 Large' },
+            { value: 'yolov8x.pt', label: 'YOLOv8 XLarge' },
+            { value: 'yolov5nu.pt', label: 'YOLOv5u Nano' },
+            { value: 'yolov5su.pt', label: 'YOLOv5u Small' },
+            { value: 'yolov5mu.pt', label: 'YOLOv5u Medium' },
+            { value: 'yolov5lu.pt', label: 'YOLOv5u Large' },
+            { value: 'yolov5xu.pt', label: 'YOLOv5u XLarge' }
         ];
     }, [datasetTask]);
 
@@ -364,11 +423,12 @@ export const TrainSetup = () => {
             ...config,
             target,
             runtime,
+            dataset_format: datasetFormatForTraining,
             gpu_devices: gpuDevices,
             gpu_mode: gpuSelection === 'dual' ? 'multi' : 'single',
-            split_train: datasetTask === 'classification' ? splitTrainPct : undefined,
-            split_val: datasetTask === 'classification' ? splitValPct : undefined,
-            split_test: datasetTask === 'classification' ? splitTestPct : undefined,
+            split_train: splitTrainPct,
+            split_val: splitValPct,
+            split_test: splitTestPct,
             runtime_config: {
                 conda_env: runtime === 'conda' ? runtimeName : undefined,
                 docker_image: runtime === 'docker' ? runtimeName : undefined
@@ -409,7 +469,7 @@ export const TrainSetup = () => {
     const handleDeleteRun = async (run: RunHistoryItem) => {
         if (!projectId || !run?.id) return;
         const confirmed = window.confirm(
-            `Excluir o treino ${run.name || run.id}?\n\nIsso remove o run e todos os recursos gerados (incluindo variantes/exportacoes associadas).`
+            `Delete training run ${run.name || run.id}?\n\nThis removes the run and all generated resources (including related variants/exports).`
         );
         if (!confirmed) return;
         setDeletingRunId(run.id);
@@ -419,7 +479,7 @@ export const TrainSetup = () => {
             });
             if (!res.ok) {
                 const message = await res.text();
-                window.alert(`Nao foi possivel excluir o treino.\n${message}`);
+                window.alert(`Could not delete the training run.\n${message}`);
                 return;
             }
             resetRun(run.id);
@@ -437,7 +497,7 @@ export const TrainSetup = () => {
             await loadHistory();
         } catch (error) {
             console.error(error);
-            window.alert('Erro ao excluir treino.');
+            window.alert('Error while deleting training run.');
         } finally {
             setDeletingRunId(null);
         }
@@ -461,35 +521,35 @@ export const TrainSetup = () => {
             <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
                 <Card className="border border-graphite-700/70">
                     <div className="flex items-center justify-between text-secondary text-xs uppercase tracking-[0.3em]">
-                        <span>Historico</span>
+                        <span>History</span>
                         <History size={14} />
                     </div>
                     <div className="mt-2 text-2xl font-mono">{totalRuns}</div>
                 </Card>
                 <Card className="border border-accent-primary/25 bg-accent-primary/5">
                     <div className="flex items-center justify-between text-secondary text-xs uppercase tracking-[0.3em]">
-                        <span>Em progresso</span>
+                        <span>In progress</span>
                         <Clock3 size={14} />
                     </div>
                     <div className="mt-2 text-2xl font-mono text-accent-primary">{runningRuns}</div>
                 </Card>
                 <Card className="border border-accent-success/25 bg-accent-success/5">
                     <div className="flex items-center justify-between text-secondary text-xs uppercase tracking-[0.3em]">
-                        <span>Concluidos</span>
+                        <span>Completed</span>
                         <CheckCircle2 size={14} />
                     </div>
                     <div className="mt-2 text-2xl font-mono text-accent-success">{completedRuns}</div>
                 </Card>
                 <Card className="border border-accent-warning/25 bg-accent-warning/5">
                     <div className="flex items-center justify-between text-secondary text-xs uppercase tracking-[0.3em]">
-                        <span>ONNX pronto</span>
+                        <span>ONNX ready</span>
                         <Download size={14} />
                     </div>
                     <div className="mt-2 text-2xl font-mono text-accent-warning">{onnxRuns}</div>
                 </Card>
                 <Card className="border border-accent-success/25 bg-accent-success/5">
                     <div className="flex items-center justify-between text-secondary text-xs uppercase tracking-[0.3em]">
-                        <span>Com validacao</span>
+                        <span>With validation</span>
                         <CheckCircle2 size={14} />
                     </div>
                     <div className="mt-2 text-2xl font-mono text-accent-success">{validatedRuns}</div>
@@ -506,7 +566,7 @@ export const TrainSetup = () => {
                             <div>
                                 <div className="text-xs uppercase tracking-[0.4em] text-haze">Trainings in progress</div>
                                 <div className="text-secondary text-sm mt-2">
-                                    Selecione um treino em andamento para acompanhar.
+                                    Select a running training run to monitor.
                                 </div>
                             </div>
                         </div>
@@ -518,7 +578,7 @@ export const TrainSetup = () => {
                                     onClick={() => navigate(`/projects/${projectId}/train/live/${run.id}`)}
                                 >
                                     <PlayCircle size={14} className="mr-2" />
-                                    Abrir {run.name}
+                                    Open {run.name}
                                 </Button>
                             ))}
                         </div>
@@ -535,7 +595,7 @@ export const TrainSetup = () => {
                             </div>
                             <div>
                                 <h3 className="text-xl font-semibold">Model Parameters</h3>
-                                <p className="text-xs text-secondary uppercase tracking-[0.24em]">Arquitetura, dimensoes e split</p>
+                                <p className="text-xs text-secondary uppercase tracking-[0.24em]">Architecture, dimensions and split</p>
                             </div>
                         </div>
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -556,16 +616,18 @@ export const TrainSetup = () => {
                             <Input
                                 label="Epochs"
                                 type="number"
+                                min={1}
                                 value={config.epochs}
-                                onChange={e => setConfig({ ...config, epochs: parseInt(e.target.value) })}
+                                onChange={e => handleConfigNumberChange('epochs', e.target.value, 1)}
                             />
                             <Input
                                 label="Image Size"
                                 type="number"
+                                min={1}
                                 value={config.img_size}
-                                onChange={e => setConfig({ ...config, img_size: parseInt(e.target.value) })}
+                                onChange={e => handleConfigNumberChange('img_size', e.target.value, 1)}
                             />
-                            {datasetTask === 'classification' && (
+                            {datasetTask && (
                                 <>
                                     <Input
                                         label="Split Train (%)"
@@ -573,7 +635,7 @@ export const TrainSetup = () => {
                                         min={0}
                                         max={100}
                                         value={splitTrainPct}
-                                        onChange={e => setSplitTrainPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                                        onChange={e => handleSplitChange('train', e.target.value)}
                                     />
                                     <Input
                                         label="Split Val (%)"
@@ -581,7 +643,7 @@ export const TrainSetup = () => {
                                         min={0}
                                         max={100}
                                         value={splitValPct}
-                                        onChange={e => setSplitValPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                                        onChange={e => handleSplitChange('val', e.target.value)}
                                     />
                                     <Input
                                         label="Split Test (%)"
@@ -589,16 +651,24 @@ export const TrainSetup = () => {
                                         min={0}
                                         max={100}
                                         value={splitTestPct}
-                                        onChange={e => setSplitTestPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                                        onChange={e => handleSplitChange('test', e.target.value)}
                                     />
                                     <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-graphite-700/70 bg-graphite-900 px-3 py-2 text-xs text-secondary">
-                                        Total: {splitTotal}% {splitValid ? '· Configuracao valida.' : '· Ajuste para 100%.'}
+                                        Total: {splitTotal}% {splitValid ? '· Configuration valid.' : '· Adjust to 100%.'}
                                     </div>
+                                    {datasetTask === 'detection' && (
+                                        <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-graphite-700/70 bg-graphite-900 px-3 py-2 text-xs text-secondary">
+                                            Detection split is applied during training. If images already contain explicit split tags, those tags take priority.
+                                        </div>
+                                    )}
                                 </>
                             )}
-                            {datasetTask && datasetTask !== 'classification' && (
+                            <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-graphite-700/70 bg-graphite-900 px-3 py-2 text-xs text-secondary">
+                                Annotation format resolved during training by framework: <span className="text-bone font-semibold uppercase">{datasetFormatForTraining}</span>.
+                            </div>
+                            {datasetTask === 'classification' && (
                                 <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-graphite-700/70 bg-graphite-900 px-3 py-2 text-xs text-secondary">
-                                    Split de treino/validacao segue a estrutura do dataset para {datasetTask}.
+                                    YOLOv5u models are available for detection in this Ultralytics release. Classification currently uses YOLOv8, YOLO11 and YOLO26 families.
                                 </div>
                             )}
                         </div>
@@ -611,15 +681,16 @@ export const TrainSetup = () => {
                             </div>
                             <div>
                                 <h3 className="text-xl font-semibold">Compute Settings</h3>
-                                <p className="text-xs text-secondary uppercase tracking-[0.24em]">Execucao local ou remota</p>
+                                <p className="text-xs text-secondary uppercase tracking-[0.24em]">Local or remote execution</p>
                             </div>
                         </div>
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                             <Input
                                 label="Batch Size"
                                 type="number"
+                                min={1}
                                 value={config.batch_size}
-                                onChange={e => setConfig({ ...config, batch_size: parseInt(e.target.value) })}
+                                onChange={e => handleConfigNumberChange('batch_size', e.target.value, 1)}
                             />
                             <Select
                                 label="Execution Target"
@@ -715,7 +786,7 @@ export const TrainSetup = () => {
                                         style={{ width: `${memoryPct}%` }}
                                     />
                                 </div>
-                                <div className="text-xs text-secondary uppercase tracking-[0.24em]">{memoryPct.toFixed(1)}% usado</div>
+                                <div className="text-xs text-secondary uppercase tracking-[0.24em]">{memoryPct.toFixed(1)}% used</div>
                             </div>
                         ) : (
                             <div className="text-secondary italic">
@@ -724,9 +795,9 @@ export const TrainSetup = () => {
                         )}
 
                         <div className="mt-6 rounded-lg border border-graphite-700/70 bg-graphite-900 px-3 py-3 text-xs text-secondary">
-                            <div className="uppercase tracking-[0.24em] mb-1">Resumo rapido</div>
-                            <div>Modelo: <span className="text-bone">{config.base_model}</span></div>
-                            <div>Epocas: <span className="text-bone">{config.epochs}</span></div>
+                            <div className="uppercase tracking-[0.24em] mb-1">Quick summary</div>
+                            <div>Model: <span className="text-bone">{config.base_model}</span></div>
+                            <div>Epochs: <span className="text-bone">{config.epochs}</span></div>
                             <div>Batch: <span className="text-bone">{config.batch_size}</span></div>
                         </div>
 
@@ -735,7 +806,7 @@ export const TrainSetup = () => {
                                 variant="primary"
                                 className="w-full h-12 text-lg"
                                 onClick={handleStart}
-                                disabled={loading || (datasetTask === 'classification' && !splitValid)}
+                                disabled={loading || !splitValid}
                             >
                                 <Rocket size={16} className="mr-2" />
                                 {loading ? 'Starting...' : 'Start Training'}
@@ -862,7 +933,7 @@ export const TrainSetup = () => {
                                     }`}>
                                         <div className="uppercase tracking-[0.24em] text-secondary mb-1">Validation</div>
                                         {!runValidation || runValidation.tested_images === 0 ? (
-                                            <div className="text-secondary">Modelo deste treino ainda sem validacao no playground.</div>
+                                            <div className="text-secondary">This run's model has not been validated in the playground yet.</div>
                                         ) : (
                                             <>
                                                 <div className="text-secondary">
@@ -890,7 +961,7 @@ export const TrainSetup = () => {
                                     <div className="mt-auto flex flex-wrap gap-2 pt-1">
                                         <Button size="sm" variant="secondary" onClick={() => applyRunConfig(run)}>
                                             <CopyPlus size={13} className="mr-1" />
-                                            Duplicar
+                                            Duplicate
                                         </Button>
                                         <Button
                                             size="sm"
@@ -898,7 +969,7 @@ export const TrainSetup = () => {
                                             onClick={() => navigate(`/projects/${projectId}/train/live/${run.id}`)}
                                         >
                                             <ArrowUpRight size={13} className="mr-1" />
-                                            Abrir
+                                            Open
                                         </Button>
                                         <Button
                                             size="sm"
@@ -906,10 +977,10 @@ export const TrainSetup = () => {
                                             className="text-error hover:text-error"
                                             onClick={() => handleDeleteRun(run)}
                                             disabled={isInProgress || isDeleting}
-                                            title={isInProgress ? 'Treino em progresso nao pode ser excluido.' : 'Excluir treino e artefatos'}
+                                            title={isInProgress ? 'A training run in progress cannot be deleted.' : 'Delete training run and artifacts'}
                                         >
                                             <Trash2 size={13} className="mr-1" />
-                                            {isDeleting ? 'Excluindo...' : 'Excluir'}
+                                            {isDeleting ? 'Deleting...' : 'Delete'}
                                         </Button>
                                     </div>
                                 </div>

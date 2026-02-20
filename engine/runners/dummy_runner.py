@@ -30,7 +30,7 @@ def main():
         # Simulate training time
         time.sleep(1.0) 
         
-        # Calculate mock metrics
+        # Calculate synthetic metrics
         loss = 1.0 / (0.1 * epoch + 1) + random.uniform(-0.05, 0.05)
         accuracy = 1.0 - loss if loss < 1 else 0.0
         

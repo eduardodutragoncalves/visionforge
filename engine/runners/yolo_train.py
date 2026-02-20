@@ -5,6 +5,7 @@ import time
 import argparse
 import yaml
 import traceback
+import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -37,8 +38,12 @@ def main():
     parser.add_argument("--split-test", type=float, default=None)
     args = parser.parse_args()
     task = (args.task or "detect").lower()
-    if task == "classification":
-        task = "classify"
+    task_aliases = {
+        "classification": "classify",
+        "detection": "detect",
+        "segmentation": "segment",
+    }
+    task = task_aliases.get(task, task)
 
     run_dir = Path(args.run_dir)
     checkpoints_dir = run_dir / "checkpoints"
@@ -59,6 +64,58 @@ def main():
     # 1. Prepare Dataset
     dataset_path = Path(args.dataset_path)
     data_yaml_path = run_dir / "data.yaml"
+
+    def resolve_split_ratios():
+        train_ratio = args.split_train
+        val_ratio = args.split_val
+        test_ratio = args.split_test
+
+        if train_ratio is None and val_ratio is None and test_ratio is None:
+            train_ratio, val_ratio, test_ratio = 80, 20, 0
+
+        ratios = [train_ratio or 0, val_ratio or 0, test_ratio or 0]
+        total_ratio = sum(ratios)
+        if total_ratio <= 0:
+            ratios = [80, 20, 0]
+            total_ratio = 100
+        if total_ratio > 1.5:
+            ratios = [r / 100 for r in ratios]
+        ratio_total = sum(ratios)
+        if ratio_total <= 0:
+            ratios = [0.8, 0.2, 0.0]
+            ratio_total = 1.0
+        return [r / ratio_total for r in ratios]
+
+    def resolve_split_counts(total_images: int):
+        ratios = resolve_split_ratios()
+        train_count = int(total_images * ratios[0])
+        val_count = int(total_images * ratios[1])
+        test_count = int(total_images * ratios[2])
+        if total_images > 0 and train_count == 0:
+            train_count = 1
+        if total_images > 1 and ratios[1] > 0 and val_count == 0:
+            if train_count > 1:
+                train_count -= 1
+                val_count = 1
+            elif test_count > 0:
+                test_count -= 1
+                val_count = 1
+        remaining = total_images - (train_count + val_count + test_count)
+        if remaining > 0:
+            train_count += remaining
+        elif remaining < 0:
+            overflow = -remaining
+            if test_count > 0:
+                take = min(test_count, overflow)
+                test_count -= take
+                overflow -= take
+            if overflow > 0 and val_count > 0:
+                take = min(val_count, overflow)
+                val_count -= take
+                overflow -= take
+            if overflow > 0 and train_count > 1:
+                train_count = max(1, train_count - overflow)
+        return train_count, val_count, test_count
 
     def build_classification_dataset(manifest_path: Path, output_dir: Path) -> Path:
         if not manifest_path.exists():
@@ -84,46 +141,7 @@ def main():
 
         labeled_images.sort(key=lambda item: item[0].get("id", ""))
         total_images = len(labeled_images)
-        train_ratio = args.split_train
-        val_ratio = args.split_val
-        test_ratio = args.split_test
-
-        if train_ratio is None and val_ratio is None and test_ratio is None:
-            train_ratio, val_ratio, test_ratio = 80, 20, 0
-
-        ratios = [train_ratio or 0, val_ratio or 0, test_ratio or 0]
-        total_ratio = sum(ratios)
-        if total_ratio <= 0:
-            ratios = [80, 20, 0]
-            total_ratio = 100
-        if total_ratio > 1.5:
-            ratios = [r / 100 for r in ratios]
-        ratio_total = sum(ratios)
-        if ratio_total <= 0:
-            ratios = [0.8, 0.2, 0.0]
-            ratio_total = 1.0
-        ratios = [r / ratio_total for r in ratios]
-
-        train_count = int(total_images * ratios[0])
-        val_count = int(total_images * ratios[1])
-        test_count = int(total_images * ratios[2])
-        if total_images > 0 and train_count == 0:
-            train_count = 1
-        remaining = total_images - (train_count + val_count + test_count)
-        if remaining > 0:
-            train_count += remaining
-        elif remaining < 0:
-            overflow = -remaining
-            if test_count > 0:
-                take = min(test_count, overflow)
-                test_count -= take
-                overflow -= take
-            if overflow > 0 and val_count > 0:
-                take = min(val_count, overflow)
-                val_count -= take
-                overflow -= take
-            if overflow > 0 and train_count > 1:
-                train_count = max(1, train_count - overflow)
+        train_count, val_count, test_count = resolve_split_counts(total_images)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         for idx, (image, label_id) in enumerate(labeled_images):
@@ -144,9 +162,197 @@ def main():
                 try:
                     os.link(source_path, target_path)
                 except OSError:
-                    import shutil
                     shutil.copy2(source_path, target_path)
         return output_dir
+
+    def build_detection_dataset(manifest_path: Path, output_dir: Path):
+        if not manifest_path.exists():
+            raise ValueError("Dataset manifest not found for detection")
+        with open(manifest_path, "r") as f:
+            dataset = json.load(f)
+
+        classes = dataset.get("classes", [])
+        images = dataset.get("images", [])
+        if not images:
+            raise ValueError("No images found in dataset manifest")
+
+        normalized_classes = []
+        for idx, cls in enumerate(sorted(classes, key=lambda item: item.get("id", 0))):
+            class_id = cls.get("id", idx)
+            class_name = (cls.get("name") or f"class_{idx}").strip()
+            normalized_classes.append((class_id, class_name))
+        if not normalized_classes:
+            normalized_classes = [(0, "object")]
+
+        class_index_by_id = {class_id: index for index, (class_id, _) in enumerate(normalized_classes)}
+        class_names = [name for _, name in normalized_classes]
+
+        valid_images = []
+        for image in images:
+            source_path = Path(image.get("path", ""))
+            if source_path.exists() and source_path.is_file():
+                valid_images.append(image)
+
+        if not valid_images:
+            raise ValueError("No valid image files found on disk for detection dataset")
+
+        # Prefer finalized images to avoid training with partially-labeled data.
+        done_images = [image for image in valid_images if bool(image.get("detection_done"))]
+        if done_images:
+            selected_images = done_images
+            selection_reason = "detection_done=true"
+        else:
+            labeled_images = [image for image in valid_images if image.get("boxes")]
+            selected_images = labeled_images if labeled_images else valid_images
+            selection_reason = "images_with_boxes_only" if labeled_images else "all_images_fallback"
+
+        if not selected_images:
+            raise ValueError("No images available for detection training after filtering")
+
+        # Infer which box coordinate convention is stored in manifest.
+        # VisionForge UI stores top-left xywh; YOLO expects center xywh.
+        def infer_box_mode(candidates):
+            center_valid = 0
+            top_left_valid = 0
+            total_boxes = 0
+            for image in candidates:
+                for box in image.get("boxes", []):
+                    try:
+                        x = float(box.get("x", 0.0))
+                        y = float(box.get("y", 0.0))
+                        w = float(box.get("w", 0.0))
+                        h = float(box.get("h", 0.0))
+                    except Exception:
+                        continue
+                    if w <= 0 or h <= 0:
+                        continue
+                    total_boxes += 1
+                    if 0.0 <= x - (w / 2) and 0.0 <= y - (h / 2) and x + (w / 2) <= 1.0 and y + (h / 2) <= 1.0:
+                        center_valid += 1
+                    if 0.0 <= x and 0.0 <= y and x + w <= 1.0 and y + h <= 1.0:
+                        top_left_valid += 1
+            if total_boxes == 0:
+                return "top_left"
+            # Require a clear margin before switching away from the UI-native convention.
+            if center_valid > top_left_valid * 1.25:
+                return "center"
+            return "top_left"
+
+        box_mode = infer_box_mode(selected_images)
+
+        selected_images.sort(key=lambda item: item.get("id", ""))
+        split_buckets = {"train": [], "val": [], "test": []}
+        explicitly_split = any(image.get("split") in split_buckets for image in selected_images)
+
+        if explicitly_split:
+            for image in selected_images:
+                split_name = image.get("split")
+                if split_name in split_buckets:
+                    split_buckets[split_name].append(image)
+                else:
+                    split_buckets["train"].append(image)
+        else:
+            train_count, val_count, test_count = resolve_split_counts(len(selected_images))
+            for idx, image in enumerate(selected_images):
+                if idx < train_count:
+                    split_name = "train"
+                elif idx < train_count + val_count:
+                    split_name = "val"
+                elif idx < train_count + val_count + test_count:
+                    split_name = "test"
+                else:
+                    split_name = "train"
+                split_buckets[split_name].append(image)
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for split_name in split_buckets:
+            (output_dir / split_name / "images").mkdir(parents=True, exist_ok=True)
+            (output_dir / split_name / "labels").mkdir(parents=True, exist_ok=True)
+
+        image_counts = {"train": 0, "val": 0, "test": 0}
+        box_counts = {"train": 0, "val": 0, "test": 0}
+
+        for split_name, split_images in split_buckets.items():
+            for image in split_images:
+                source_path = Path(image["path"])
+                suffix = source_path.suffix or ".jpg"
+                image_stem = image.get("id", source_path.stem)
+                filename = f"{image_stem}{suffix}"
+                target_image_path = output_dir / split_name / "images" / filename
+                if not target_image_path.exists():
+                    try:
+                        os.link(source_path, target_image_path)
+                    except OSError:
+                        shutil.copy2(source_path, target_image_path)
+
+                label_lines = []
+                for box in image.get("boxes", []):
+                    try:
+                        class_id = int(box.get("class_id"))
+                    except Exception:
+                        continue
+                    if class_id not in class_index_by_id:
+                        continue
+                    try:
+                        x_raw = max(0.0, min(1.0, float(box.get("x", 0.0))))
+                        y_raw = max(0.0, min(1.0, float(box.get("y", 0.0))))
+                        w_raw = max(0.0, min(1.0, float(box.get("w", 0.0))))
+                        h_raw = max(0.0, min(1.0, float(box.get("h", 0.0))))
+                    except Exception:
+                        continue
+                    if w_raw <= 0 or h_raw <= 0:
+                        continue
+
+                    if box_mode == "top_left":
+                        x_center = x_raw + (w_raw / 2.0)
+                        y_center = y_raw + (h_raw / 2.0)
+                        w = w_raw
+                        h = h_raw
+                    else:
+                        x_center = x_raw
+                        y_center = y_raw
+                        w = w_raw
+                        h = h_raw
+
+                    # Clamp by corners to guarantee YOLO-valid center boxes.
+                    x1 = max(0.0, x_center - (w / 2.0))
+                    y1 = max(0.0, y_center - (h / 2.0))
+                    x2 = min(1.0, x_center + (w / 2.0))
+                    y2 = min(1.0, y_center + (h / 2.0))
+                    w = x2 - x1
+                    h = y2 - y1
+                    if w <= 0 or h <= 0:
+                        continue
+                    x_center = (x1 + x2) / 2.0
+                    y_center = (y1 + y2) / 2.0
+
+                    class_index = class_index_by_id[class_id]
+                    label_lines.append(f"{class_index} {x_center:.6f} {y_center:.6f} {w:.6f} {h:.6f}")
+
+                target_label_path = output_dir / split_name / "labels" / f"{Path(filename).stem}.txt"
+                if label_lines:
+                    with open(target_label_path, "w") as f:
+                        f.write("\n".join(label_lines) + "\n")
+                    box_counts[split_name] += len(label_lines)
+                elif target_label_path.exists():
+                    target_label_path.unlink()
+                image_counts[split_name] += 1
+
+        classes_file = output_dir / "classes.txt"
+        with open(classes_file, "w") as f:
+            f.write("\n".join(class_names) + "\n")
+
+        emit_event("train/logs", {
+            "level": "INFO",
+            "message": (
+                "Detection dataset prepared from manifest "
+                f"(mode={box_mode}, selection={selection_reason}, selected={len(selected_images)}/{len(valid_images)}): "
+                f"train={image_counts['train']} ({box_counts['train']} boxes), "
+                f"val={image_counts['val']} ({box_counts['val']} boxes), "
+                f"test={image_counts['test']} ({box_counts['test']} boxes)"
+            )
+        })
+        return output_dir, class_names
 
     if task == "classify":
         classification_root = dataset_path
@@ -156,28 +362,49 @@ def main():
             classification_root = build_classification_dataset(manifest_path, run_dir / "cls_dataset")
         data_root = classification_root
     else:
-        # Detection dataset YAML
-        train_path = dataset_path / "train" / "images"
-        val_path = dataset_path / "valid" / "images"
-        if not train_path.exists():
-            train_path = dataset_path
-        if not val_path.exists():
-            val_path = train_path
+        # Detection dataset YAML (manifest-first build for VisionForge projects)
+        detection_root = dataset_path
+        detection_class_names = ["object"]
+        train_path = detection_root / "train" / "images"
+        val_path = detection_root / "valid" / "images"
+        test_path = detection_root / "test" / "images"
+
+        manifest_path = Path(args.dataset_manifest) if args.dataset_manifest else None
+        if manifest_path and manifest_path.exists():
+            detection_root, detection_class_names = build_detection_dataset(
+                manifest_path,
+                run_dir / "det_dataset"
+            )
+            train_path = detection_root / "train" / "images"
+            val_path = detection_root / "val" / "images"
+            test_path = detection_root / "test" / "images"
+        else:
+            if not train_path.exists():
+                train_path = detection_root / "images"
+            if not train_path.exists():
+                train_path = detection_root
+            if not val_path.exists():
+                val_path = detection_root / "val" / "images"
+            if not val_path.exists():
+                val_path = train_path
+
+            classes_file = detection_root / "classes.txt"
+            if classes_file.exists():
+                with open(classes_file, "r") as f:
+                    lines = [l.strip() for l in f.readlines() if l.strip()]
+                    if lines:
+                        detection_class_names = lines
 
         data_yaml_content = {
-            "path": str(dataset_path.absolute()),
+            "path": str(detection_root.absolute()),
             "train": str(train_path.absolute()),
             "val": str(val_path.absolute()),
-            "names": {0: "object"},
-            "nc": 1
+            "names": {i: name for i, name in enumerate(detection_class_names)},
+            "nc": len(detection_class_names)
         }
 
-        classes_file = dataset_path / "classes.txt"
-        if classes_file.exists():
-            with open(classes_file, 'r') as f:
-                lines = [l.strip() for l in f.readlines() if l.strip()]
-                data_yaml_content["names"] = {i: name for i, name in enumerate(lines)}
-                data_yaml_content["nc"] = len(lines)
+        if test_path.exists():
+            data_yaml_content["test"] = str(test_path.absolute())
 
         with open(data_yaml_path, "w") as f:
             yaml.dump(data_yaml_content, f)
@@ -249,6 +476,14 @@ def main():
         if task == "classify" and "-cls" not in model_name:
             model_name = model_name.replace(".pt", "-cls.pt")
         model = YOLO(model_name)
+        model_task_raw = str(getattr(model, "task", "") or "").strip().lower()
+        model_task_normalized = task_aliases.get(model_task_raw, model_task_raw)
+        if model_task_normalized and model_task_normalized != model_task_raw:
+            emit_event("train/logs", {
+                "level": "INFO",
+                "message": f"Normalizing loaded model task from '{model_task_raw}' to '{model_task_normalized}'."
+            })
+            setattr(model, "task", model_task_normalized)
         
         # Register hooks
         model.add_callback("on_train_epoch_end", on_train_epoch_end)
@@ -271,7 +506,6 @@ def main():
         # Ultralytics saves to project/name/weights
         weights_dir = run_dir / "yolo_run" / "weights"
         if weights_dir.exists():
-            import shutil
             if (weights_dir / "best.pt").exists():
                 shutil.copy(weights_dir / "best.pt", checkpoints_dir / "best.pt")
             if (weights_dir / "last.pt").exists():

@@ -3,10 +3,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import random
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from PIL import Image, UnidentifiedImageError
 
 from engine.core.events import manager
@@ -36,10 +37,42 @@ def _assign_color(index: int) -> str:
     return CLASS_COLOR_POOL[index % len(CLASS_COLOR_POOL)]
 
 class DatasetService:
+    def _file_content_hash(self, file_path: str, chunk_size: int = 1024 * 1024) -> str:
+        digest = hashlib.sha256()
+        with open(file_path, "rb") as fh:
+            while True:
+                chunk = fh.read(chunk_size)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _is_annotated_image(self, image: Dict[str, Any]) -> bool:
+        labels = image.get("labels") or []
+        boxes = image.get("boxes") or []
+        detection_done = bool(image.get("detection_done", False))
+        return len(labels) > 0 or len(boxes) > 0 or detection_done
+
     def _load_or_create_dataset(self, project_id: str, root_path: str = "") -> Dict[str, Any]:
         manifest_path = paths.get_dataset_manifest_path(project_id)
         if manifest_path.exists():
-            return manifests.load_manifest(manifest_path)
+            dataset = manifests.load_manifest(manifest_path)
+            images = dataset.get("images", [])
+            changed = False
+            for image in images:
+                if "detection_done" not in image:
+                    image["detection_done"] = False
+                    changed = True
+                if "is_augmented" not in image:
+                    image["is_augmented"] = False
+                    changed = True
+                if "augmentation_source_id" not in image:
+                    image["augmentation_source_id"] = None
+                    changed = True
+            if changed:
+                dataset["updated_at"] = _now()
+                manifests.save_manifest(manifest_path, dataset, "dataset")
+            return dataset
 
         project_manifest_path = paths.get_project_dir(project_id) / "project.json"
         analysis_type = DEFAULT_TASK
@@ -83,7 +116,10 @@ class DatasetService:
                     "path": file_path,
                     "split": "unassigned",
                     "labels": [],
-                    "boxes": []
+                    "boxes": [],
+                    "detection_done": False,
+                    "is_augmented": False,
+                    "augmentation_source_id": None
                 })
 
         dataset["root_path"] = root_path
@@ -138,7 +174,10 @@ class DatasetService:
                 "path": str(destination),
                 "split": "unassigned",
                 "labels": [],
-                "boxes": []
+                "boxes": [],
+                "detection_done": False,
+                "is_augmented": False,
+                "augmentation_source_id": None
             }
             dataset["images"].append(image_entry)
             added.append(image_entry)
@@ -196,7 +235,10 @@ class DatasetService:
                     "path": str(destination),
                     "split": "unassigned",
                     "labels": [],
-                    "boxes": []
+                    "boxes": [],
+                    "detection_done": False,
+                    "is_augmented": False,
+                    "augmentation_source_id": None
                 }
                 dataset["images"].append(image_entry)
                 added_entries.append(image_entry)
@@ -309,6 +351,199 @@ class DatasetService:
                 return image
         raise ValueError("Image not found")
 
+    def update_image_detection_status(self, project_id: str, image_id: str, detection_done: bool) -> Dict[str, Any]:
+        dataset = self._load_or_create_dataset(project_id)
+        images = dataset.get("images", [])
+        for image in images:
+            if image["id"] == image_id:
+                image["detection_done"] = bool(detection_done)
+                dataset["updated_at"] = _now()
+                manifests.save_manifest(paths.get_dataset_manifest_path(project_id), dataset, "dataset")
+                return image
+        raise ValueError("Image not found")
+
+    async def augment_classification_images(
+        self,
+        project_id: str,
+        image_ids: List[str],
+        config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        config = config or {}
+        dataset = self._load_or_create_dataset(project_id)
+        if dataset.get("task") != "classification":
+            raise ValueError("Augmentation is currently available only for classification datasets")
+
+        all_images = dataset.get("images", [])
+        if not all_images:
+            return {"added": 0, "generated_from": 0}
+
+        target_scope = str(config.get("target_scope", "all")).strip().lower() or "all"
+        if target_scope not in {"all", "labeled", "unlabeled"}:
+            target_scope = "all"
+
+        def _matches_scope(image: Dict[str, Any]) -> bool:
+            labels = image.get("labels", [])
+            if target_scope == "labeled":
+                return len(labels) > 0
+            if target_scope == "unlabeled":
+                return len(labels) == 0
+            return True
+
+        image_ids_set = set(image_ids or [])
+        if image_ids_set:
+            source_images = [img for img in all_images if img.get("id") in image_ids_set and _matches_scope(img)]
+        else:
+            source_images = [img for img in all_images if _matches_scope(img)]
+        if not source_images:
+            return {"added": 0, "generated_from": 0}
+
+        copies_per_image = max(1, int(config.get("copies_per_image", 1)))
+        output_size = max(32, int(config.get("output_size", 640)))
+
+        apply_percent = float(config.get("apply_percent", 100.0))
+        apply_ratio = max(0.0, min(1.0, apply_percent / 100.0))
+
+        hflip_percent = float(config.get("horizontal_flip_percent", 50.0))
+        vflip_percent = float(config.get("vertical_flip_percent", 0.0))
+        erasing_percent = float(config.get("erasing_percent", 0.0))
+        hsv_h_percent = float(config.get("hsv_h_percent", 1.5))
+        hsv_s_percent = float(config.get("hsv_s_percent", 40.0))
+        hsv_v_percent = float(config.get("hsv_v_percent", 40.0))
+        auto_augment = config.get("auto_augment")
+        if auto_augment in ("none", "", "null"):
+            auto_augment = None
+        force_color_jitter = bool(config.get("force_color_jitter", False))
+
+        hflip = max(0.0, min(1.0, hflip_percent / 100.0))
+        vflip = max(0.0, min(1.0, vflip_percent / 100.0))
+        erasing = max(0.0, min(1.0, erasing_percent / 100.0))
+        hsv_h = max(0.0, min(1.0, hsv_h_percent / 100.0))
+        hsv_s = max(0.0, min(1.0, hsv_s_percent / 100.0))
+        hsv_v = max(0.0, min(1.0, hsv_v_percent / 100.0))
+
+        try:
+            from ultralytics.data.augment import classify_augmentations
+            from torchvision.transforms.functional import to_pil_image
+        except ImportError as exc:
+            raise RuntimeError("Ultralytics + torchvision are required for classification augmentation") from exc
+
+        request_id = str(config.get("request_id") or "").strip() or None
+
+        transform = classify_augmentations(
+            size=output_size,
+            hflip=hflip,
+            vflip=vflip,
+            hsv_h=hsv_h,
+            hsv_s=hsv_s,
+            hsv_v=hsv_v,
+            erasing=erasing,
+            auto_augment=auto_augment,
+            force_color_jitter=force_color_jitter
+        )
+
+        _, images_dir, _ = self._ensure_dataset_dirs(project_id)
+        generated_images: List[Dict[str, Any]] = []
+        skipped_missing = 0
+        planned_operations = max(len(source_images) * copies_per_image, 1)
+        processed_operations = 0
+        last_reported_processed = -1
+
+        async def emit_progress(status: str, force: bool = False):
+            nonlocal last_reported_processed
+            if not force and status == "running":
+                if processed_operations < planned_operations and (processed_operations - last_reported_processed) < 5:
+                    return
+            last_reported_processed = processed_operations
+            await manager.broadcast("dataset/augment_progress", {
+                "project_id": project_id,
+                "request_id": request_id,
+                "status": status,
+                "processed": processed_operations,
+                "total": planned_operations,
+                "percent": round((processed_operations / planned_operations) * 100, 2),
+                "added": len(generated_images)
+            })
+
+        await emit_progress("starting", force=True)
+
+        for source in source_images:
+            source_path = Path(source.get("path", ""))
+            if not source_path.exists() or not source_path.is_file():
+                skipped_missing += copies_per_image
+                processed_operations += copies_per_image
+                await emit_progress("running")
+                await asyncio.sleep(0)
+                continue
+            for _ in range(copies_per_image):
+                processed_operations += 1
+                if apply_ratio < 1.0 and random.random() > apply_ratio:
+                    await emit_progress("running")
+                    await asyncio.sleep(0)
+                    continue
+                try:
+                    with Image.open(source_path) as img:
+                        pil = img.convert("RGB")
+                        augmented = transform(pil)
+                        if hasattr(augmented, "detach"):
+                            augmented = augmented.detach().clamp(0, 1)
+                            augmented_pil = to_pil_image(augmented)
+                        else:
+                            augmented_pil = augmented
+                except Exception:
+                    skipped_missing += 1
+                    await emit_progress("running")
+                    await asyncio.sleep(0)
+                    continue
+
+                destination = self._unique_destination(images_dir, f"{source_path.stem}_aug{source_path.suffix.lower()}")
+                save_kwargs: Dict[str, Any] = {}
+                if destination.suffix.lower() in {".jpg", ".jpeg"}:
+                    save_kwargs["quality"] = 95
+                    save_kwargs["optimize"] = True
+                augmented_pil.save(destination, **save_kwargs)
+
+                image_entry = {
+                    "id": _image_id(str(destination)),
+                    "path": str(destination),
+                    "split": source.get("split", "unassigned") or "unassigned",
+                    "labels": sorted(set(source.get("labels", []))),
+                    "boxes": [],
+                    "detection_done": False,
+                    "is_augmented": True,
+                    "augmentation_source_id": source.get("id")
+                }
+                generated_images.append(image_entry)
+                await emit_progress("running")
+                await asyncio.sleep(0)
+
+        if generated_images:
+            dataset["images"].extend(generated_images)
+            dataset["updated_at"] = _now()
+            manifests.save_manifest(paths.get_dataset_manifest_path(project_id), dataset, "dataset")
+
+        result = {
+            "added": len(generated_images),
+            "generated_from": len(source_images),
+            "skipped": skipped_missing,
+            "config": {
+                "copies_per_image": copies_per_image,
+                "output_size": output_size,
+                "apply_percent": apply_percent,
+                "horizontal_flip_percent": hflip_percent,
+                "vertical_flip_percent": vflip_percent,
+                "erasing_percent": erasing_percent,
+                "hsv_h_percent": hsv_h_percent,
+                "hsv_s_percent": hsv_s_percent,
+                "hsv_v_percent": hsv_v_percent,
+                "auto_augment": auto_augment,
+                "force_color_jitter": force_color_jitter,
+                "target_scope": target_scope
+            }
+        }
+        processed_operations = planned_operations
+        await emit_progress("completed", force=True)
+        return result
+
     def delete_image(self, project_id: str, image_id: str) -> Dict[str, Any]:
         result = self.delete_images(project_id, [image_id])
         if image_id not in result["deleted_ids"]:
@@ -355,9 +590,12 @@ class DatasetService:
         root_path = dataset.get("root_path")
         if not root_path:
             raise ValueError("Dataset root path not configured")
-        report, files = await self.scan_dataset(project_id, root_path)
-        await self.validate_dataset(project_id, files)
-        return report
+        scan_report, files = await self.scan_dataset(project_id, root_path)
+        validation_report = await self.validate_dataset(project_id, files)
+        return {
+            **validation_report,
+            "scan": scan_report
+        }
 
     async def import_dataset(self, project_id: str, directory_path: str):
         path = Path(directory_path)
@@ -379,7 +617,6 @@ class DatasetService:
 
     async def scan_dataset(self, project_id: str, directory_path: str):
         """Scans directory and reports file counts."""
-        scan_id = f"scan_{project_id}"
         path = Path(directory_path)
         
         counts = {ext: 0 for ext in VALID_EXTENSIONS}
@@ -388,7 +625,14 @@ class DatasetService:
         # Running synchronously in async flow for simplicity (MVP)
         # For large datasets, use run_in_executor
         
-        await manager.broadcast("dataset/scan_progress", {"status": "starting", "path": str(path)})
+        await manager.broadcast("dataset/scan_progress", {
+            "phase": "scan",
+            "status": "starting",
+            "path": str(path),
+            "count": 0,
+            "progress": 0,
+            "message": "Scanning folders and files..."
+        })
         
         files_found = []
         
@@ -400,10 +644,12 @@ class DatasetService:
                     total_files += 1
                     files_found.append(os.path.join(root, file))
                     
-                    if total_files % 100 == 0:
+                    if total_files % 25 == 0:
                         await manager.broadcast("dataset/scan_progress", {
+                            "phase": "scan",
                             "status": "scanning",
-                            "count": total_files
+                            "count": total_files,
+                            "message": f"Found {total_files} image files so far..."
                         })
                         await asyncio.sleep(0) # Yield
 
@@ -413,14 +659,35 @@ class DatasetService:
             "scanned_at": str(path)
         }
         
+        await manager.broadcast("dataset/scan_progress", {
+            "phase": "scan",
+            "status": "completed",
+            "count": total_files,
+            "progress": 100,
+            "message": f"Scan completed with {total_files} image(s). Starting validation..."
+        })
         await manager.broadcast("dataset/scan_completed", report)
         return report, files_found
 
     async def validate_dataset(self, project_id: str, files_list: List[str]):
         """Validates images and computes hash."""
+        dataset = self._load_or_create_dataset(project_id)
+        images = dataset.get("images", [])
+        image_by_path = {}
+        for image in images:
+            raw_path = image.get("path")
+            if not raw_path:
+                continue
+            image_by_path[raw_path] = image
+            try:
+                image_by_path[str(Path(raw_path).resolve())] = image
+            except Exception:
+                pass
+
         total = len(files_list)
         corrupted = []
-        valid_paths = []
+        valid_entries = []
+        duplicate_buckets: Dict[str, List[Dict[str, Any]]] = {}
         
         dataset_hash = hashlib.sha256()
         
@@ -434,30 +701,66 @@ class DatasetService:
                 # Sort order matters for deterministic hash, handled by sorted list passed in or sorting here
                 # Here we trust the order or should sort
                 size = os.path.getsize(file_path)
-                valid_paths.append((file_path, size))
+                content_hash = self._file_content_hash(file_path)
+                resolved_file_path = str(Path(file_path).resolve())
+                image_meta = image_by_path.get(resolved_file_path) or image_by_path.get(file_path)
+                entry = {
+                    "path": file_path,
+                    "size": size,
+                    "content_hash": content_hash,
+                    "id": image_meta.get("id") if image_meta else None,
+                    "labels_count": len(image_meta.get("labels", [])) if image_meta else 0,
+                    "boxes_count": len(image_meta.get("boxes", [])) if image_meta else 0,
+                    "detection_done": bool(image_meta.get("detection_done", False)) if image_meta else False,
+                    "annotated": self._is_annotated_image(image_meta) if image_meta else False
+                }
+                valid_entries.append(entry)
+                if entry["id"]:
+                    duplicate_buckets.setdefault(content_hash, []).append(entry)
                 
             except (UnidentifiedImageError, OSError):
                 corrupted.append(file_path)
             
-            if idx % 50 == 0:
-                progress =  round((idx / total) * 100, 1)
+            if idx % 10 == 0:
+                processed = idx + 1 if total > 0 else 0
+                progress = round((processed / total) * 100, 1) if total > 0 else 100.0
                 await manager.broadcast("dataset/validate_progress", {
+                    "phase": "validate",
+                    "status": "running",
                     "progress": progress,
-                    "processed": idx,
-                    "total": total
+                    "processed": processed,
+                    "total": total,
+                    "message": f"Validated {processed} / {total} image(s)..."
                 })
                 await asyncio.sleep(0)
 
         # Final Hash computation on sorted valid entries
-        valid_paths.sort(key=lambda x: x[0])
-        for p, s in valid_paths:
-            dataset_hash.update(f"{p}:{s}".encode('utf-8'))
+        valid_entries.sort(key=lambda x: x["path"])
+        for entry in valid_entries:
+            dataset_hash.update(f"{entry['path']}:{entry['size']}".encode('utf-8'))
+
+        duplicate_groups: List[Dict[str, Any]] = []
+        for content_hash, entries in duplicate_buckets.items():
+            if len(entries) < 2:
+                continue
+            sorted_entries = sorted(entries, key=lambda item: item["path"])
+            duplicate_groups.append({
+                "content_hash": content_hash,
+                "count": len(sorted_entries),
+                "images": sorted_entries
+            })
+
+        duplicate_groups.sort(key=lambda group: group["count"], reverse=True)
+        duplicate_files_count = sum(group["count"] for group in duplicate_groups)
             
         final_report = {
-            "valid_count": len(valid_paths),
+            "valid_count": len(valid_entries),
             "corrupted_count": len(corrupted),
             "corrupted_files": corrupted[:10], # Truncate for report
-            "dataset_hash": dataset_hash.hexdigest()
+            "dataset_hash": dataset_hash.hexdigest(),
+            "duplicate_groups_count": len(duplicate_groups),
+            "duplicate_files_count": duplicate_files_count,
+            "duplicate_groups": duplicate_groups
         }
         
         # Save Report
@@ -468,6 +771,14 @@ class DatasetService:
         with open(project_dir / "dataset_hash.txt", "w") as f:
             f.write(final_report["dataset_hash"])
 
+        await manager.broadcast("dataset/validate_progress", {
+            "phase": "validate",
+            "status": "completed",
+            "progress": 100,
+            "processed": total,
+            "total": total,
+            "message": "Validation completed. Finalizing report..."
+        })
         await manager.broadcast("dataset/validated", final_report)
         return final_report
 

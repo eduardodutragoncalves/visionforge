@@ -117,7 +117,7 @@ class Orchestrator:
             await self._run_export_job(project_id, run_id, config)
             return
 
-        framework = config.get("framework", "dummy")
+        framework = config.get("framework", "ultralytics")
         
         logger.info(f"Starting job {run_id} ({framework})")
         
@@ -165,11 +165,17 @@ class Orchestrator:
              
              dataset_path = None
              dataset_task = "detect"
+             task_aliases = {
+                 "classification": "classify",
+                 "detection": "detect",
+                 "segmentation": "segment",
+             }
              dataset_manifest_path = paths.get_dataset_manifest_path(project_id)
              if dataset_manifest_path.exists():
                  try:
                      dataset = manifests.load_manifest(dataset_manifest_path)
-                     dataset_task = dataset.get("task") or dataset_task
+                     raw_task = str(dataset.get("task") or dataset_task).strip().lower()
+                     dataset_task = task_aliases.get(raw_task, raw_task or dataset_task)
                      dataset_path = dataset.get("root_path") or str(paths.get_project_dataset_dir(project_id))
                  except Exception:
                      dataset_path = None
@@ -213,9 +219,22 @@ class Orchestrator:
                  device_str = ",".join(str(device) for device in gpu_devices)
                  script_args.extend(["--device", device_str])
              
-        else: # Dummy
+        elif framework == "dummy":
             script_path = os.path.join(os.path.dirname(__file__), "../runners/dummy_runner.py")
             script_args = ["--run-id", run_id, "--epochs", str(config.get("epochs", 10))]
+        else:
+            self._update_run_status(run_json_path, "failed")
+            await manager.broadcast("train/logs", {
+                "run_id": run_id,
+                "level": "ERROR",
+                "message": f"Unsupported training framework: {framework}"
+            })
+            await manager.broadcast("train/failed", {
+                "run_id": run_id,
+                "project_id": project_id,
+                "error": f"unsupported_framework:{framework}"
+            })
+            return
         
         # Build Command via RuntimeBuilder
         try:
@@ -245,9 +264,10 @@ class Orchestrator:
         fallback_last_epoch = 0
         fallback_last_loss: Optional[float] = None
         fallback_last_accuracy: Optional[float] = None
+        expected_total_epochs = int(config.get("epochs", 0) or 0)
 
         ansi_re = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-        epoch_re = re.compile(r"\b(\d{1,4})\s*/\s*(\d{1,4})\b")
+        epoch_re = re.compile(r"^\s*(\d{1,4})\s*/\s*(\d{1,4})\b")
         loss_re = re.compile(r"\b\d+(?:\.\d+)?G\s+([0-9]*\.?[0-9]+)\b")
         acc_re = re.compile(r"\ball\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\b")
 
@@ -320,27 +340,33 @@ class Orchestrator:
                                         epoch = 0
                                         total_epochs = 0
 
-                                    if epoch > fallback_last_epoch and total_epochs > 0:
-                                        loss_match = loss_re.search(clean_line)
-                                        if loss_match:
-                                            try:
-                                                fallback_last_loss = float(loss_match.group(1))
-                                            except Exception:
-                                                pass
+                                    if total_epochs <= 0 or epoch <= 0 or epoch > total_epochs:
+                                        continue
+                                    if expected_total_epochs > 0 and total_epochs != expected_total_epochs:
+                                        continue
+                                    if epoch <= fallback_last_epoch:
+                                        continue
 
-                                        parsed_metric = {
-                                            "run_id": run_id,
-                                            "project_id": project_id,
-                                            "epoch": epoch,
-                                            "total_epochs": total_epochs,
-                                            "loss": fallback_last_loss if fallback_last_loss is not None else 0.0,
-                                            "accuracy": fallback_last_accuracy if fallback_last_accuracy is not None else 0.0
-                                        }
-                                        fallback_last_epoch = epoch
+                                    loss_match = loss_re.search(clean_line)
+                                    if loss_match:
+                                        try:
+                                            fallback_last_loss = float(loss_match.group(1))
+                                        except Exception:
+                                            pass
 
-                                        f_metrics.write(json.dumps(parsed_metric) + "\n")
-                                        f_metrics.flush()
-                                        await manager.broadcast("train/metrics", parsed_metric)
+                                    parsed_metric = {
+                                        "run_id": run_id,
+                                        "project_id": project_id,
+                                        "epoch": epoch,
+                                        "total_epochs": total_epochs,
+                                        "loss": fallback_last_loss if fallback_last_loss is not None else 0.0,
+                                        "accuracy": fallback_last_accuracy if fallback_last_accuracy is not None else 0.0
+                                    }
+                                    fallback_last_epoch = epoch
+
+                                    f_metrics.write(json.dumps(parsed_metric) + "\n")
+                                    f_metrics.flush()
+                                    await manager.broadcast("train/metrics", parsed_metric)
                         else:
                              await manager.broadcast("train/logs", {
                                 "run_id": run_id, 

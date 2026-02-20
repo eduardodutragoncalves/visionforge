@@ -2,8 +2,8 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 import mimetypes
 from pathlib import Path
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import List, Optional, Literal
 
 from engine.services.dataset_service import dataset_service
 from engine.io import paths
@@ -46,6 +46,9 @@ class BoundingBox(BaseModel):
 class UpdateBoxesRequest(BaseModel):
     boxes: List[BoundingBox]
 
+class UpdateImageStatusRequest(BaseModel):
+    detection_done: Optional[bool] = None
+
 class IngestDirectoriesRequest(BaseModel):
     paths: List[str]
 
@@ -64,6 +67,22 @@ class PreclassifyRequest(BaseModel):
     image_ids: List[str]
     model: Optional[str] = "yolov8n-cls.pt"
     topk: Optional[int] = 3
+
+class ClassificationAugmentationRequest(BaseModel):
+    request_id: Optional[str] = None
+    image_ids: List[str] = Field(default_factory=list)
+    target_scope: Literal["all", "labeled", "unlabeled"] = "all"
+    copies_per_image: int = 1
+    output_size: int = 640
+    apply_percent: float = 100.0
+    horizontal_flip_percent: float = 50.0
+    vertical_flip_percent: float = 0.0
+    hsv_h_percent: float = 1.5
+    hsv_s_percent: float = 40.0
+    hsv_v_percent: float = 40.0
+    erasing_percent: float = 0.0
+    auto_augment: Optional[str] = None
+    force_color_jitter: bool = False
 
 @router.get("/projects/{project_id}/dataset")
 async def get_dataset(project_id: str):
@@ -148,6 +167,19 @@ async def update_image_boxes(project_id: str, image_id: str, request: UpdateBoxe
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.put("/projects/{project_id}/dataset/images/{image_id}/status")
+async def update_image_status(project_id: str, image_id: str, request: UpdateImageStatusRequest):
+    if request.detection_done is None:
+        raise HTTPException(status_code=400, detail="No status field provided")
+    try:
+        return dataset_service.update_image_detection_status(
+            project_id,
+            image_id,
+            request.detection_done
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.post("/projects/{project_id}/dataset/ingest/directories")
 async def ingest_directories(project_id: str, request: IngestDirectoriesRequest):
     try:
@@ -196,6 +228,17 @@ async def preclassify_dataset(project_id: str, request: PreclassifyRequest):
             request.topk or 3
         )
         return {"model": request.model, "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/projects/{project_id}/dataset/augment/classification")
+async def augment_classification_dataset(project_id: str, request: ClassificationAugmentationRequest):
+    try:
+        return await dataset_service.augment_classification_images(
+            project_id,
+            request.image_ids,
+            request.dict(exclude_none=True)
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
