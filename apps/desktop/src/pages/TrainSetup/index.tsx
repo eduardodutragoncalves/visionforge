@@ -913,7 +913,7 @@ export const TrainSetup = () => {
                         </div>
                         <div>
                             <h3 className="text-xl font-semibold">Training History</h3>
-                            <p className="text-secondary text-sm">Runs executed for this project, with export and status highlights.</p>
+                            <p className="text-secondary text-sm">Compact cards with training and validation accuracy highlights.</p>
                         </div>
                     </div>
                     <Button variant="ghost" onClick={loadHistory} disabled={historyLoading}>
@@ -921,6 +921,63 @@ export const TrainSetup = () => {
                         {historyLoading ? 'Refreshing...' : 'Refresh'}
                     </Button>
                 </div>
+
+                {!historyLoading && runHistory.length > 0 && (
+                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+                        <Input
+                            label="Search"
+                            placeholder="Run name, ID, model"
+                            value={historyQuery}
+                            onChange={(e) => setHistoryQuery(e.target.value)}
+                        />
+                        <Select
+                            label="Status"
+                            value={historyStatusFilter}
+                            onChange={(e) => setHistoryStatusFilter(e.target.value as HistoryStatusFilter)}
+                            options={[
+                                { value: 'all', label: 'All statuses' },
+                                { value: 'running', label: 'In progress' },
+                                { value: 'completed', label: 'Completed' },
+                                { value: 'failed', label: 'Failed' },
+                                { value: 'other', label: 'Other' }
+                            ]}
+                        />
+                        <Select
+                            label="Validation"
+                            value={historyValidationFilter}
+                            onChange={(e) => setHistoryValidationFilter(e.target.value as HistoryValidationFilter)}
+                            options={[
+                                { value: 'all', label: 'All' },
+                                { value: 'validated', label: 'Validated only' },
+                                { value: 'not_validated', label: 'Not validated' }
+                            ]}
+                        />
+                        <Select
+                            label="ONNX"
+                            value={historyOnnxFilter}
+                            onChange={(e) => setHistoryOnnxFilter(e.target.value as HistoryOnnxFilter)}
+                            options={[
+                                { value: 'all', label: 'All runs' },
+                                { value: 'onnx', label: 'ONNX exported' },
+                                { value: 'without_onnx', label: 'Without ONNX export' }
+                            ]}
+                        />
+                        <Select
+                            label="Sort"
+                            value={historySortBy}
+                            onChange={(e) => setHistorySortBy(e.target.value as HistorySortBy)}
+                            options={[
+                                { value: 'newest', label: 'Newest first' },
+                                { value: 'oldest', label: 'Oldest first' },
+                                { value: 'train_accuracy_desc', label: 'Train accuracy (desc)' },
+                                { value: 'validation_accuracy_desc', label: 'Validation accuracy (desc)' },
+                                { value: 'validation_coverage_desc', label: 'Validation coverage (desc)' },
+                                { value: 'name_asc', label: 'Name (A-Z)' }
+                            ]}
+                        />
+                    </div>
+                )}
+
                 {historyLoading ? (
                     <div className="mt-4 text-secondary text-sm flex items-center gap-2">
                         <Activity size={14} className="animate-pulse" />
@@ -928,154 +985,177 @@ export const TrainSetup = () => {
                     </div>
                 ) : runHistory.length === 0 ? (
                     <div className="mt-4 text-secondary text-sm">No runs yet.</div>
+                ) : filteredRunHistory.length === 0 ? (
+                    <div className="mt-4 rounded-lg border border-graphite-700/70 bg-graphite-900/50 px-3 py-3 text-sm text-secondary">
+                        No runs match the current filters.
+                    </div>
                 ) : (
-                    <div className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                        {runHistory.map((run) => {
-                            const indicators = buildIndicators(run);
-                            const statusMeta = getRunStatusMeta(run.status);
-                            const StatusIcon = statusMeta.icon;
-                            const onnxExported = Boolean(runOnnxMap[run.id]);
-                            const runValidation = runValidationMap[run.id] || null;
-                            const isInProgress = isInProgressStatus(run.status);
-                            const isDeleting = deletingRunId === run.id;
-                            return (
-                                <div
-                                    key={run.id}
-                                    className={`rounded-lg p-4 space-y-3 h-full flex flex-col border ${
-                                        onnxExported
-                                            ? 'border-accent-warning/50 bg-accent-warning/5'
-                                            : 'border-graphite-700/70 bg-graphite-900/60'
-                                    }`}
-                                >
-                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                        <div>
-                                            <div className="text-xs uppercase tracking-[0.4em] text-haze">Run</div>
-                                            <div className="text-bone font-mono break-all">{run.name || run.id}</div>
-                                            <div className="text-xs text-secondary mt-1 flex items-center gap-2">
-                                                <StatusIcon size={12} />
-                                                <span>{run.status || 'unknown'}</span>
+                    <>
+                        <div className="mt-4 text-xs text-secondary uppercase tracking-[0.24em]">
+                            Showing {filteredRunHistory.length} of {runHistory.length} runs
+                        </div>
+                        <div className="mt-3 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                            {filteredRunHistory.map((run) => {
+                                const indicators = buildIndicators(run);
+                                const extraIndicators = indicators.filter((item) => item.label !== 'Accuracy');
+                                const statusMeta = getRunStatusMeta(run.status);
+                                const StatusIcon = statusMeta.icon;
+                                const onnxExported = Boolean(runOnnxMap[run.id]);
+                                const runValidation = runValidationMap[run.id] || null;
+                                const isInProgress = isInProgressStatus(run.status);
+                                const isDeleting = deletingRunId === run.id;
+                                return (
+                                    <div
+                                        key={run.id}
+                                        className={`rounded-lg p-3 space-y-2.5 h-full flex flex-col border ${
+                                            onnxExported
+                                                ? 'border-accent-warning/45 bg-accent-warning/5'
+                                                : 'border-graphite-700/70 bg-graphite-900/60'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <div className="text-[10px] uppercase tracking-[0.35em] text-haze">Run</div>
+                                                <div className="text-sm text-bone font-mono truncate">{run.name || run.id}</div>
+                                                <div className="text-[11px] text-secondary mt-1 flex items-center gap-1.5">
+                                                    <StatusIcon size={11} />
+                                                    <span>{run.status || 'unknown'}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col items-end gap-1.5">
+                                                <StatusPill status={statusMeta.pill} label={statusMeta.label.toUpperCase()} pulsing={statusMeta.pill === 'running'} />
+                                                {onnxExported && (
+                                                    <div className="inline-flex items-center gap-1 rounded border border-accent-warning/50 bg-accent-warning/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.18em] text-accent-warning">
+                                                        <Download size={10} />
+                                                        ONNX Exported
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
-                                        <div className="flex flex-col items-start gap-2">
-                                            <StatusPill status={statusMeta.pill} label={statusMeta.label.toUpperCase()} pulsing={statusMeta.pill === 'running'} />
-                                            {onnxExported && (
-                                                <div className="inline-flex items-center gap-1 border border-accent-warning/50 bg-accent-warning/10 px-2 py-1 rounded text-[10px] uppercase tracking-[0.2em] text-accent-warning">
-                                                    <Download size={11} />
-                                                    ONNX Exportado
-                                                </div>
+
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/10 px-2 py-2">
+                                                <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">Train accuracy</div>
+                                                <div className="mt-1 text-lg font-mono text-accent-primary">{formatAccuracyBadge(run.final_metrics?.accuracy)}</div>
+                                            </div>
+                                            <div className={`rounded-lg border px-2 py-2 ${
+                                                runValidation && runValidation.tested_images > 0
+                                                    ? 'border-accent-success/35 bg-accent-success/10'
+                                                    : 'border-graphite-700/70 bg-graphite-900/70'
+                                            }`}>
+                                                <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">Validation accuracy</div>
+                                                <div className="mt-1 text-lg font-mono text-accent-success">{formatPct(runValidation?.accuracy_pct)}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-1.5 text-[10px] uppercase tracking-[0.16em] text-secondary">
+                                            {run.config?.base_model && (
+                                                <span className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
+                                                    Model <strong className="text-bone">{run.config.base_model}</strong>
+                                                </span>
+                                            )}
+                                            {run.config?.epochs && (
+                                                <span className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
+                                                    Epochs <strong className="text-bone">{run.config.epochs}</strong>
+                                                </span>
+                                            )}
+                                            {(run.config?.batch_size || run.config?.batch) && (
+                                                <span className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
+                                                    Batch <strong className="text-bone">{run.config?.batch_size ?? run.config?.batch}</strong>
+                                                </span>
+                                            )}
+                                            {run.config?.img_size && (
+                                                <span className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
+                                                    Img <strong className="text-bone">{run.config.img_size}</strong>
+                                                </span>
+                                            )}
+                                            {(run.config?.split_train !== undefined ||
+                                                run.config?.split_val !== undefined ||
+                                                run.config?.split_test !== undefined) && (
+                                                    <span className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
+                                                        Split <strong className="text-bone">{run.config?.split_train ?? 0}%/{run.config?.split_val ?? 0}%/{run.config?.split_test ?? 0}%</strong>
+                                                    </span>
+                                                )}
+                                            {run.created_at && (
+                                                <span className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
+                                                    Started <strong className="text-bone">{new Date(run.created_at).toLocaleString()}</strong>
+                                                </span>
                                             )}
                                         </div>
-                                    </div>
 
-                                    <div className="grid grid-cols-2 gap-2 text-[11px] uppercase tracking-[0.2em] text-secondary">
-                                        {run.config?.base_model && (
-                                            <div className="rounded border border-graphite-700/70 bg-graphite-900 px-2 py-2">
-                                                Model: <span className="text-bone font-semibold">{run.config.base_model}</span>
-                                            </div>
-                                        )}
-                                        {run.config?.epochs && (
-                                            <div className="rounded border border-graphite-700/70 bg-graphite-900 px-2 py-2">
-                                                Epochs: <span className="text-bone font-semibold">{run.config.epochs}</span>
-                                            </div>
-                                        )}
-                                        {(run.config?.batch_size || run.config?.batch) && (
-                                            <div className="rounded border border-graphite-700/70 bg-graphite-900 px-2 py-2">
-                                                Batch: <span className="text-bone font-semibold">{run.config?.batch_size ?? run.config?.batch}</span>
-                                            </div>
-                                        )}
-                                        {run.config?.img_size && (
-                                            <div className="rounded border border-graphite-700/70 bg-graphite-900 px-2 py-2">
-                                                Img: <span className="text-bone font-semibold">{run.config.img_size}</span>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {(run.config?.split_train !== undefined ||
-                                        run.config?.split_val !== undefined ||
-                                        run.config?.split_test !== undefined) && (
-                                        <div className="text-[11px] uppercase tracking-[0.2em] text-secondary rounded border border-graphite-700/70 bg-graphite-900 px-2 py-2">
-                                            Split: <span className="text-bone font-semibold">{run.config?.split_train ?? 0}% / {run.config?.split_val ?? 0}% / {run.config?.split_test ?? 0}%</span>
+                                        <div className="flex flex-wrap gap-1.5 text-[10px] uppercase tracking-[0.16em] text-secondary">
+                                            {extraIndicators.length === 0 ? (
+                                                <span className="text-secondary">No additional metrics.</span>
+                                            ) : (
+                                                extraIndicators.map((item) => (
+                                                    <span key={`${run.id}-${item.label}`} className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
+                                                        {item.label} <strong className="text-bone">{formatMetric(item.value)}</strong>
+                                                    </span>
+                                                ))
+                                            )}
                                         </div>
-                                    )}
-                                    {run.created_at && (
-                                        <div className="text-[11px] uppercase tracking-[0.2em] text-secondary rounded border border-graphite-700/70 bg-graphite-900 px-2 py-2">
-                                            Started: <span className="text-bone font-semibold">{new Date(run.created_at).toLocaleString()}</span>
+
+                                        <div className={`rounded border px-2.5 py-2 text-[11px] ${
+                                            runValidation && runValidation.tested_images > 0
+                                                ? 'border-accent-success/35 bg-accent-success/5'
+                                                : 'border-graphite-700/70 bg-graphite-900/70'
+                                        }`}>
+                                            <div className="uppercase tracking-[0.22em] text-secondary mb-1">Validation details</div>
+                                            {!runValidation || runValidation.tested_images === 0 ? (
+                                                <div className="text-secondary">This run has no validation data yet.</div>
+                                            ) : (
+                                                <>
+                                                    <div className="text-secondary">
+                                                        Coverage <span className="text-bone font-semibold">{runValidation.tested_images}/{runValidation.total_images}</span> ({formatPct(runValidation.coverage_pct)})
+                                                    </div>
+                                                    <div className="mt-1 flex flex-wrap gap-1.5 uppercase tracking-[0.14em]">
+                                                        <span className="rounded border border-accent-success/35 bg-accent-success/10 px-1.5 py-1">
+                                                            Correct <strong className="text-bone">{runValidation.correct}</strong>
+                                                        </span>
+                                                        <span className="rounded border border-accent-error/35 bg-accent-error/10 px-1.5 py-1">
+                                                            Wrong <strong className="text-bone">{runValidation.incorrect}</strong>
+                                                        </span>
+                                                        <span className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
+                                                            Pending <strong className="text-bone">{runValidation.pending}</strong>
+                                                        </span>
+                                                    </div>
+                                                    <div className="mt-1 text-secondary">
+                                                        Last test {runValidation.last_tested_at ? new Date(runValidation.last_tested_at).toLocaleString() : '—'}
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
-                                    )}
 
-                                    <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.2em] text-secondary">
-                                        {indicators.length === 0 ? (
-                                            <span className="text-secondary">No metrics recorded.</span>
-                                        ) : (
-                                            indicators.map((item) => (
-                                                <span key={`${run.id}-${item.label}`} className="rounded border border-graphite-700/70 bg-graphite-900 px-2 py-1">
-                                                    {item.label}: <strong className="text-bone">{formatMetric(item.value)}</strong>
-                                                </span>
-                                            ))
-                                        )}
+                                        <div className="mt-auto flex flex-wrap gap-2 pt-0.5">
+                                            <Button size="sm" variant="secondary" onClick={() => applyRunConfig(run)}>
+                                                <CopyPlus size={13} className="mr-1" />
+                                                Duplicate
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => navigate(`/projects/${projectId}/train/live/${run.id}`)}
+                                            >
+                                                <ArrowUpRight size={13} className="mr-1" />
+                                                Open
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="text-error hover:text-error"
+                                                onClick={() => handleDeleteRun(run)}
+                                                disabled={isInProgress || isDeleting}
+                                                title={isInProgress ? 'A training run in progress cannot be deleted.' : 'Delete training run and artifacts'}
+                                            >
+                                                <Trash2 size={13} className="mr-1" />
+                                                {isDeleting ? 'Deleting...' : 'Delete'}
+                                            </Button>
+                                        </div>
                                     </div>
-
-                                    <div className={`rounded border px-3 py-2 text-xs ${
-                                        runValidation && runValidation.tested_images > 0
-                                            ? 'border-accent-success/35 bg-accent-success/5'
-                                            : 'border-graphite-700/70 bg-graphite-900'
-                                    }`}>
-                                        <div className="uppercase tracking-[0.24em] text-secondary mb-1">Validation</div>
-                                        {!runValidation || runValidation.tested_images === 0 ? (
-                                            <div className="text-secondary">This run's model has not been validated in the playground yet.</div>
-                                        ) : (
-                                            <>
-                                                <div className="text-secondary">
-                                                    Coverage: <span className="text-bone font-semibold">{runValidation.tested_images}/{runValidation.total_images}</span> ({formatPct(runValidation.coverage_pct)})
-                                                </div>
-                                                <div className="mt-1 flex flex-wrap gap-2 uppercase tracking-[0.16em]">
-                                                    <span className="rounded border border-accent-success/35 bg-accent-success/10 px-2 py-1">
-                                                        Correct <strong className="text-bone">{runValidation.correct}</strong>
-                                                    </span>
-                                                    <span className="rounded border border-accent-error/35 bg-accent-error/10 px-2 py-1">
-                                                        Wrong <strong className="text-bone">{runValidation.incorrect}</strong>
-                                                    </span>
-                                                    <span className="rounded border border-graphite-700/70 bg-graphite-900 px-2 py-1">
-                                                        Pending <strong className="text-bone">{runValidation.pending}</strong>
-                                                    </span>
-                                                </div>
-                                                <div className="mt-1 text-secondary">
-                                                    Accuracy (labeled): <span className="text-bone font-semibold">{formatPct(runValidation.accuracy_pct)}</span>
-                                                    {runValidation.last_tested_at ? ` · Last test ${new Date(runValidation.last_tested_at).toLocaleString()}` : ''}
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-
-                                    <div className="mt-auto flex flex-wrap gap-2 pt-1">
-                                        <Button size="sm" variant="secondary" onClick={() => applyRunConfig(run)}>
-                                            <CopyPlus size={13} className="mr-1" />
-                                            Duplicate
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={() => navigate(`/projects/${projectId}/train/live/${run.id}`)}
-                                        >
-                                            <ArrowUpRight size={13} className="mr-1" />
-                                            Open
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-error hover:text-error"
-                                            onClick={() => handleDeleteRun(run)}
-                                            disabled={isInProgress || isDeleting}
-                                            title={isInProgress ? 'A training run in progress cannot be deleted.' : 'Delete training run and artifacts'}
-                                        >
-                                            <Trash2 size={13} className="mr-1" />
-                                            {isDeleting ? 'Deleting...' : 'Delete'}
-                                        </Button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
                 )}
             </Card>
         </div>

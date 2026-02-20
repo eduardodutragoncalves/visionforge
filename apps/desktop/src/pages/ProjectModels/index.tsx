@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+import { Select } from '../../components/ui/Select';
 import { StatusPill } from '../../components/ui/StatusPill';
 import { ENGINE_HTTP_URL } from '../../lib/engine';
 
@@ -115,6 +117,17 @@ interface SummaryMetricCardProps {
     tone?: 'default' | 'success' | 'warning' | 'running';
 }
 
+type ModelValidationFilter = 'all' | 'validated' | 'not_validated';
+type ModelDeploymentFilter = 'all' | 'deployed' | 'not_deployed' | 'deploying';
+type ModelSortBy =
+    | 'newest'
+    | 'oldest'
+    | 'train_accuracy_desc'
+    | 'validation_accuracy_desc'
+    | 'validation_coverage_desc'
+    | 'deployments_desc'
+    | 'name_asc';
+
 const targetLabel = (targetId?: string) => {
     if (!targetId) return 'Unknown target';
     return DEPLOYMENT_TARGETS.find((target) => target.id === targetId)?.label || targetId;
@@ -133,6 +146,12 @@ const formatMetric = (value?: number, decimals = 4) => {
 const formatPercent = (value?: number | null, decimals = 1) => {
     if (typeof value !== 'number' || Number.isNaN(value)) return '—';
     return `${value.toFixed(decimals)}%`;
+};
+
+const toAccuracyPercent = (value?: number | null) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return null;
+    if (value <= 1) return value * 100;
+    return value;
 };
 
 const formatDate = (value?: string) => {
@@ -378,6 +397,10 @@ export const ProjectModels = () => {
     const [deployNotice, setDeployNotice] = useState<string | null>(null);
     const [readmeLoading, setReadmeLoading] = useState(false);
     const [nowTs, setNowTs] = useState<number>(Date.now());
+    const [modelSearchQuery, setModelSearchQuery] = useState('');
+    const [modelValidationFilter, setModelValidationFilter] = useState<ModelValidationFilter>('all');
+    const [modelDeploymentFilter, setModelDeploymentFilter] = useState<ModelDeploymentFilter>('all');
+    const [modelSortBy, setModelSortBy] = useState<ModelSortBy>('newest');
 
     const fetchVariants = useCallback(async () => {
         if (!projectId) return;
@@ -477,11 +500,6 @@ export const ProjectModels = () => {
         [selectedTargetId]
     );
 
-    const variantsSorted = useMemo(
-        () => [...variants].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
-        [variants]
-    );
-
     const handleDeploy = async () => {
         if (!projectId || !deployModalVariant) return;
         const variantId = deployModalVariant.id;
@@ -520,6 +538,62 @@ export const ProjectModels = () => {
         () => Object.entries(deployingByVariant),
         [deployingByVariant]
     );
+
+    const filteredVariants = useMemo(() => {
+        const query = modelSearchQuery.trim().toLowerCase();
+        const parseTimestamp = (value?: string) => {
+            const ts = Date.parse(String(value || ''));
+            return Number.isNaN(ts) ? 0 : ts;
+        };
+
+        const filtered = variants.filter((variant) => {
+            const validation = normalizedValidation(variant.validation);
+            const hasValidation = validation.testedImages > 0;
+            const hasDeployment = (variant.deployments?.length || 0) > 0;
+            const isDeploying = Boolean(deployingByVariant[variant.id]);
+
+            if (modelValidationFilter === 'validated' && !hasValidation) return false;
+            if (modelValidationFilter === 'not_validated' && hasValidation) return false;
+
+            if (modelDeploymentFilter === 'deployed' && !hasDeployment) return false;
+            if (modelDeploymentFilter === 'not_deployed' && hasDeployment) return false;
+            if (modelDeploymentFilter === 'deploying' && !isDeploying) return false;
+
+            if (query) {
+                const searchable = [
+                    variant.id,
+                    variant.name,
+                    variant.base_model,
+                    variant.run_id
+                ].join(' ').toLowerCase();
+                if (!searchable.includes(query)) return false;
+            }
+
+            return true;
+        });
+
+        filtered.sort((a, b) => {
+            if (modelSortBy === 'newest') return parseTimestamp(b.created_at) - parseTimestamp(a.created_at);
+            if (modelSortBy === 'oldest') return parseTimestamp(a.created_at) - parseTimestamp(b.created_at);
+            if (modelSortBy === 'name_asc') return String(a.name || a.id).localeCompare(String(b.name || b.id));
+            if (modelSortBy === 'deployments_desc') return (b.deployments?.length || 0) - (a.deployments?.length || 0);
+            if (modelSortBy === 'train_accuracy_desc') {
+                const aAcc = toAccuracyPercent(a.metrics?.accuracy) ?? -Infinity;
+                const bAcc = toAccuracyPercent(b.metrics?.accuracy) ?? -Infinity;
+                return bAcc - aAcc;
+            }
+            if (modelSortBy === 'validation_accuracy_desc') {
+                const aAcc = normalizedValidation(a.validation).accuracyPct ?? -Infinity;
+                const bAcc = normalizedValidation(b.validation).accuracyPct ?? -Infinity;
+                return bAcc - aAcc;
+            }
+            const aCoverage = normalizedValidation(a.validation).coverage;
+            const bCoverage = normalizedValidation(b.validation).coverage;
+            return bCoverage - aCoverage;
+        });
+
+        return filtered;
+    }, [deployingByVariant, modelDeploymentFilter, modelSearchQuery, modelSortBy, modelValidationFilter, variants]);
 
     const totalDeployments = useMemo(
         () => variants.reduce((count, variant) => count + (variant.deployments?.length || 0), 0),
