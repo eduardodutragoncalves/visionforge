@@ -786,8 +786,57 @@ export const ProjectModels = () => {
                 </Card>
             )}
 
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-                {variantsSorted.length === 0 && (
+            <Card className="border border-graphite-700/70 bg-graphite-900/35">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <Input
+                        label="Search"
+                        placeholder="Model name, ID, base model"
+                        value={modelSearchQuery}
+                        onChange={(e) => setModelSearchQuery(e.target.value)}
+                    />
+                    <Select
+                        label="Validation"
+                        value={modelValidationFilter}
+                        onChange={(e) => setModelValidationFilter(e.target.value as ModelValidationFilter)}
+                        options={[
+                            { value: 'all', label: 'All models' },
+                            { value: 'validated', label: 'Validated only' },
+                            { value: 'not_validated', label: 'Not validated' }
+                        ]}
+                    />
+                    <Select
+                        label="Deployment"
+                        value={modelDeploymentFilter}
+                        onChange={(e) => setModelDeploymentFilter(e.target.value as ModelDeploymentFilter)}
+                        options={[
+                            { value: 'all', label: 'All states' },
+                            { value: 'deployed', label: 'Deployed' },
+                            { value: 'not_deployed', label: 'Not deployed' },
+                            { value: 'deploying', label: 'Deploying now' }
+                        ]}
+                    />
+                    <Select
+                        label="Sort"
+                        value={modelSortBy}
+                        onChange={(e) => setModelSortBy(e.target.value as ModelSortBy)}
+                        options={[
+                            { value: 'newest', label: 'Newest first' },
+                            { value: 'oldest', label: 'Oldest first' },
+                            { value: 'train_accuracy_desc', label: 'Train accuracy (desc)' },
+                            { value: 'validation_accuracy_desc', label: 'Validation accuracy (desc)' },
+                            { value: 'validation_coverage_desc', label: 'Validation coverage (desc)' },
+                            { value: 'deployments_desc', label: 'Deployments count (desc)' },
+                            { value: 'name_asc', label: 'Name (A-Z)' }
+                        ]}
+                    />
+                </div>
+                <div className="mt-3 text-xs uppercase tracking-[0.24em] text-secondary">
+                    Showing {filteredVariants.length} of {variants.length} models
+                </div>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+                {variants.length === 0 && (
                     <Card className="col-span-full border border-graphite-700/70 bg-graphite-900/40 py-14">
                         <div className="mx-auto max-w-md text-center text-secondary">
                             <Activity size={20} className="mx-auto mb-3 text-haze" />
@@ -799,7 +848,17 @@ export const ProjectModels = () => {
                     </Card>
                 )}
 
-                {variantsSorted.map((variant) => {
+                {variants.length > 0 && filteredVariants.length === 0 && (
+                    <Card className="col-span-full border border-graphite-700/70 bg-graphite-900/40 py-12">
+                        <div className="mx-auto max-w-md text-center text-secondary">
+                            <Activity size={20} className="mx-auto mb-3 text-haze" />
+                            <div className="mb-2 text-sm uppercase tracking-[0.3em]">No matches</div>
+                            <div className="text-sm">No model matches the selected filters and sorting options.</div>
+                        </div>
+                    </Card>
+                )}
+
+                {filteredVariants.map((variant) => {
                     const deployments = variant.deployments || [];
                     const activeDeploy = deployingByVariant[variant.id];
                     const deployedTargets = Array.from(
@@ -823,45 +882,51 @@ export const ProjectModels = () => {
                     return (
                         <Card
                             key={variant.id}
-                            className="flex h-full flex-col border border-graphite-700/70 bg-gradient-to-b from-graphite-900/80 to-graphite-900/50 p-5 transition-all duration-150 hover:border-accent-primary/40"
+                            className="flex h-full flex-col border border-graphite-700/70 bg-gradient-to-b from-graphite-900/80 to-graphite-900/50 p-4 transition-all duration-150 hover:border-accent-primary/40"
                         >
-                            <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
-                                    <h3 className="truncate text-xl font-semibold">{variant.name}</h3>
-                                    <div className="mt-1 truncate font-mono text-xs text-secondary">{variant.id}</div>
+                                    <h3 className="truncate text-lg font-semibold">{variant.name}</h3>
+                                    <div className="mt-0.5 truncate font-mono text-[11px] text-secondary">{variant.id}</div>
                                 </div>
                                 <StatusPill status={status} label={statusLabel} pulsing={Boolean(activeDeploy)} />
                             </div>
 
-                            <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                                <div className="rounded-lg border border-graphite-700/70 bg-graphite-900/70 px-2 py-2">
-                                    <div className="uppercase tracking-[0.24em] text-secondary">mAP50</div>
-                                    <div className="mt-1 font-mono text-accent-primary">{formatMetric(variant.metrics.final_map)}</div>
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                                <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/10 px-2 py-2">
+                                    <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">Train accuracy</div>
+                                    <div className="mt-1 text-lg font-mono text-accent-primary">{formatAccuracyBadge(variant.metrics.accuracy)}</div>
                                 </div>
-                                <div className="rounded-lg border border-graphite-700/70 bg-graphite-900/70 px-2 py-2">
-                                    <div className="uppercase tracking-[0.24em] text-secondary">Accuracy</div>
-                                    <div className="mt-1 font-mono">{formatMetric(variant.metrics.accuracy)}</div>
-                                </div>
-                                <div className="rounded-lg border border-graphite-700/70 bg-graphite-900/70 px-2 py-2">
-                                    <div className="uppercase tracking-[0.24em] text-secondary">Loss</div>
-                                    <div className="mt-1 font-mono">{formatMetric(variant.metrics.loss)}</div>
+                                <div className={`rounded-lg border px-2 py-2 ${hasValidation ? 'border-accent-success/35 bg-accent-success/10' : 'border-graphite-700/70 bg-graphite-900/70'}`}>
+                                    <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">Validation accuracy</div>
+                                    <div className="mt-1 text-lg font-mono text-accent-success">{formatPercent(validation.accuracyPct)}</div>
                                 </div>
                             </div>
 
-                            <div className="mt-4 space-y-2 text-sm">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-secondary">Base model</span>
-                                    <span className="font-medium">{variant.base_model}</span>
+                            <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[10px] uppercase tracking-[0.16em] text-secondary">
+                                <div className="rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-1.5">
+                                    mAP50 <strong className="text-bone">{formatMetric(variant.metrics.final_map)}</strong>
                                 </div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-secondary">Created</span>
-                                    <span className="text-xs">{formatDate(variant.created_at)}</span>
+                                <div className="rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-1.5">
+                                    Loss <strong className="text-bone">{formatMetric(variant.metrics.loss)}</strong>
+                                </div>
+                                <div className="rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-1.5 col-span-2">
+                                    Coverage <strong className="text-bone">{formatPercent(validation.coverage)}</strong>
                                 </div>
                             </div>
 
-                            <div className="mt-4 rounded-lg border border-graphite-700/70 bg-graphite-900/55 px-3 py-2">
-                                <div className="text-[11px] uppercase tracking-[0.3em] text-secondary">Deployment State</div>
-                                <div className="mt-1 text-sm">{statusHint}</div>
+                            <div className="mt-2.5 flex flex-wrap gap-1.5 text-[10px] uppercase tracking-[0.16em] text-secondary">
+                                <span className="rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-1.5">
+                                    Base model <strong className="text-bone">{variant.base_model}</strong>
+                                </span>
+                                <span className="rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-1.5">
+                                    Created <strong className="text-bone">{formatDate(variant.created_at)}</strong>
+                                </span>
+                            </div>
+
+                            <div className="mt-2.5 rounded-lg border border-graphite-700/70 bg-graphite-900/55 px-2.5 py-2">
+                                <div className="text-[10px] uppercase tracking-[0.25em] text-secondary">Deployment state</div>
+                                <div className="mt-1 text-xs">{statusHint}</div>
                                 {activeDeploy && (
                                     <div className="mt-2 h-1.5 overflow-hidden rounded bg-graphite-700">
                                         <div
@@ -872,30 +937,29 @@ export const ProjectModels = () => {
                                 )}
                             </div>
 
-                            <div className={`mt-3 rounded-lg border px-3 py-2 ${hasValidation ? 'border-accent-success/35 bg-accent-success/5' : 'border-graphite-700/70 bg-graphite-900/55'}`}>
-                                <div className="text-[11px] uppercase tracking-[0.3em] text-secondary">Validation</div>
+                            <div className={`mt-2.5 rounded-lg border px-2.5 py-2 ${hasValidation ? 'border-accent-success/35 bg-accent-success/5' : 'border-graphite-700/70 bg-graphite-900/55'}`}>
+                                <div className="text-[10px] uppercase tracking-[0.25em] text-secondary">Validation details</div>
                                 {hasValidation ? (
                                     <>
-                                        <div className="mt-1 text-xs text-secondary">
-                                            {validation.testedImages}/{validation.totalImages} images tested · coverage {formatPercent(validation.coverage)}
+                                        <div className="mt-1 text-[11px] text-secondary">
+                                            {validation.testedImages}/{validation.totalImages} images tested
                                         </div>
-                                        <div className="mt-2 h-1.5 overflow-hidden rounded bg-graphite-700">
+                                        <div className="mt-1.5 h-1.5 overflow-hidden rounded bg-graphite-700">
                                             <div className="h-full bg-accent-success transition-all duration-300" style={{ width: `${validation.coverage}%` }} />
                                         </div>
-                                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.2em] text-secondary">
-                                            <span className="rounded border border-accent-success/35 bg-accent-success/10 px-2 py-1">
-                                                Correct: <strong className="text-bone">{validation.correct}</strong>
+                                        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] uppercase tracking-[0.14em] text-secondary">
+                                            <span className="rounded border border-accent-success/35 bg-accent-success/10 px-1.5 py-1">
+                                                Correct <strong className="text-bone">{validation.correct}</strong>
                                             </span>
-                                            <span className="rounded border border-accent-error/35 bg-accent-error/10 px-2 py-1">
-                                                Wrong: <strong className="text-bone">{validation.incorrect}</strong>
+                                            <span className="rounded border border-accent-error/35 bg-accent-error/10 px-1.5 py-1">
+                                                Wrong <strong className="text-bone">{validation.incorrect}</strong>
                                             </span>
-                                            <span className="rounded border border-graphite-700/70 bg-graphite-900 px-2 py-1">
-                                                Pending: <strong className="text-bone">{validation.pending}</strong>
+                                            <span className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
+                                                Pending <strong className="text-bone">{validation.pending}</strong>
                                             </span>
                                         </div>
-                                        <div className="mt-2 text-xs text-secondary">
-                                            Accuracy (labeled): <strong className="text-bone">{formatPercent(validation.accuracyPct)}</strong>
-                                            {validation.lastTestedAt ? ` · Last test ${formatDate(validation.lastTestedAt)}` : ''}
+                                        <div className="mt-1.5 text-[11px] text-secondary">
+                                            Last test {validation.lastTestedAt ? formatDate(validation.lastTestedAt) : '—'}
                                         </div>
                                     </>
                                 ) : (
@@ -903,14 +967,14 @@ export const ProjectModels = () => {
                                 )}
                             </div>
 
-                            <div className="mt-4">
-                                <div className="mb-2 text-[11px] uppercase tracking-[0.32em] text-secondary">Deploy Targets</div>
+                            <div className="mt-3">
+                                <div className="mb-1.5 text-[10px] uppercase tracking-[0.25em] text-secondary">Deploy targets</div>
                                 {deployedTargets.length === 0 ? (
-                                    <div className="rounded-lg border border-dashed border-graphite-700/80 px-3 py-2 text-xs text-secondary">
+                                    <div className="rounded-lg border border-dashed border-graphite-700/80 px-2.5 py-2 text-[11px] text-secondary">
                                         No target exported yet. Click <strong>Deploy</strong> to generate the first package.
                                     </div>
                                 ) : (
-                                    <div className="flex flex-wrap gap-2">
+                                    <div className="flex flex-wrap gap-1.5">
                                         {deployedTargets.map((targetId) => {
                                             const latest = [...deployments]
                                                 .filter((deployment) => deployment.target_id === targetId)
@@ -936,7 +1000,7 @@ export const ProjectModels = () => {
                                 )}
                             </div>
 
-                            <div className="mt-5 grid grid-cols-2 gap-2">
+                            <div className="mt-3 grid grid-cols-2 gap-2">
                                 <Button size="sm" variant="secondary">Test</Button>
                                 <Button
                                     size="sm"
