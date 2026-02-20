@@ -161,6 +161,12 @@ const formatDate = (value?: string) => {
     return date.toLocaleString();
 };
 
+const formatAccuracyBadge = (value?: number | null) => {
+    const percent = toAccuracyPercent(value);
+    if (percent === null) return '—';
+    return `${percent.toFixed(1)}%`;
+};
+
 const normalizedValidation = (validation?: ValidationSummary) => {
     const totalImages = Math.max(0, Number(validation?.total_images || 0));
     const testedImages = Math.max(0, Number(validation?.tested_images || 0));
