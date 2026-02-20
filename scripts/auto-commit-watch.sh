@@ -3,8 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PID_FILE="${ROOT_DIR}/.agent/auto-commit-watch.pid"
-LOG_FILE="${ROOT_DIR}/.agent/auto-commit-watch.log"
+REPO_KEY="$(printf '%s' "${ROOT_DIR}" | sha1sum | awk '{print $1}')"
+STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/visionforge-autosync-${REPO_KEY}"
+PID_FILE="${STATE_DIR}/watch.pid"
+LOG_FILE="${STATE_DIR}/watch.log"
 
 INTERVAL_SECONDS="${AUTO_SYNC_INTERVAL_SECONDS:-8}"
 STABLE_SECONDS="${AUTO_SYNC_STABLE_SECONDS:-20}"
@@ -34,7 +36,7 @@ start_daemon() {
     rm -f "${PID_FILE}"
   fi
 
-  mkdir -p "$(dirname "${PID_FILE}")"
+  mkdir -p "${STATE_DIR}"
   touch "${LOG_FILE}"
   if command -v setsid >/dev/null 2>&1; then
     setsid bash "${BASH_SOURCE[0]}" _run </dev/null >>"${LOG_FILE}" 2>&1 &
@@ -49,7 +51,7 @@ start_daemon() {
 stop_daemon() {
   if [[ ! -f "${PID_FILE}" ]]; then
     echo "[auto-sync] Watcher is not running."
-    exit 0
+    return 0
   fi
 
   local pid
