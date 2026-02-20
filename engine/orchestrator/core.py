@@ -3,8 +3,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
-from typing import Dict, Optional, Set
+from typing import Any, Dict, Optional, Set
 from datetime import datetime
 
 from engine.core.events import manager
@@ -19,7 +20,10 @@ class Orchestrator:
     def __init__(self):
         self.queue = asyncio.Queue()
         self.active_jobs: Dict[str, Dict] = {}
+        self.queued_jobs: Dict[str, Dict] = {}
         self.queued_run_ids: Set[str] = set()
+        self.cancel_requested_ids: Set[str] = set()
+        self.active_processes: Dict[str, asyncio.subprocess.Process] = {}
         self.is_processing = False
         self.workspace_root = str(paths.get_workspace_root())
         self.max_concurrent_jobs = self._resolve_max_concurrent_jobs()
@@ -72,6 +76,7 @@ class Orchestrator:
             "queued_at": datetime.now().isoformat()
         }
         self.queued_run_ids.add(run_id)
+        self.queued_jobs[run_id] = job
         await self.queue.put(job)
         logger.info(f"Job queued: {run_id} for project {project_id}")
         
@@ -92,11 +97,31 @@ class Orchestrator:
 
     async def _run_job_guarded(self, job: Dict):
         run_id = job.get("run_id")
+        project_id = job.get("project_id")
+        config = job.get("config") or {}
+        job_type = str(config.get("type", "train"))
         async with self.semaphore:
+            cancelled_before_start = False
             if run_id:
                 self.queued_run_ids.discard(run_id)
-                self.active_jobs[run_id] = job
+                self.queued_jobs.pop(run_id, None)
+                if run_id in self.cancel_requested_ids:
+                    cancelled_before_start = True
+                else:
+                    self.active_jobs[run_id] = job
             try:
+                if cancelled_before_start:
+                    self.cancel_requested_ids.discard(run_id)
+                    if job_type == "export":
+                        await manager.broadcast("export/failed", {
+                            "run_id": run_id,
+                            "project_id": project_id,
+                            "variant_id": config.get("variant_id"),
+                            "target_id": config.get("target_id", "edge_generic"),
+                            "error": "Cancelled by user",
+                            "cancelled": True
+                        })
+                    return
                 await self._run_job(job)
             except Exception as e:
                 logger.error(f"Job failed: {e}")
@@ -106,7 +131,54 @@ class Orchestrator:
                     self.active_jobs.pop(run_id, None)
                 if run_id:
                     self.queued_run_ids.discard(run_id)
+                    self.queued_jobs.pop(run_id, None)
+                    self.active_processes.pop(run_id, None)
                 self.queue.task_done()
+
+    async def cancel_export_job(self, project_id: str, run_id: str) -> Dict[str, Any]:
+        run_id = str(run_id or "").strip()
+        if not run_id:
+            return {"status": "invalid", "message": "run_id is required"}
+
+        queued_job = self.queued_jobs.get(run_id)
+        if queued_job:
+            queued_project_id = str(queued_job.get("project_id") or "")
+            queued_type = str((queued_job.get("config") or {}).get("type", "train"))
+            if queued_project_id != project_id or queued_type != "export":
+                return {"status": "not_found"}
+            self.cancel_requested_ids.add(run_id)
+            self.queued_run_ids.discard(run_id)
+            return {"status": "cancelled_queued", "run_id": run_id}
+
+        active_job = self.active_jobs.get(run_id)
+        if active_job:
+            active_project_id = str(active_job.get("project_id") or "")
+            active_config = active_job.get("config") or {}
+            active_type = str(active_config.get("type", "train"))
+            if active_project_id != project_id or active_type != "export":
+                return {"status": "not_found"}
+
+            self.cancel_requested_ids.add(run_id)
+            process = self.active_processes.get(run_id)
+            if process and process.returncode is None:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+                except Exception as exc:
+                    logger.warning("Failed to terminate export process %s: %s", run_id, exc)
+
+            await manager.broadcast("export/progress", {
+                "run_id": run_id,
+                "project_id": project_id,
+                "variant_id": active_config.get("variant_id"),
+                "target_id": active_config.get("target_id", "edge_generic"),
+                "message": "Cancellation requested by user.",
+                "cancel_requested": True
+            })
+            return {"status": "cancel_requested", "run_id": run_id}
+
+        return {"status": "not_found"}
 
     async def _run_job(self, job):
         project_id = job["project_id"]
@@ -421,6 +493,18 @@ class Orchestrator:
         runtime = config.get("runtime", "local")
         runtime_config = config.get("runtime_config", {}) or {}
 
+        if run_id in self.cancel_requested_ids:
+            self.cancel_requested_ids.discard(run_id)
+            await manager.broadcast("export/failed", {
+                "run_id": run_id,
+                "project_id": project_id,
+                "variant_id": variant_id,
+                "target_id": target_id,
+                "error": "Cancelled by user",
+                "cancelled": True
+            })
+            return
+
         if not variant_id:
             await manager.broadcast("export/failed", {
                 "run_id": run_id,
@@ -446,6 +530,22 @@ class Orchestrator:
         artifacts_dir = package_dir / "artifacts"
         logs_path = package_dir / "export.log"
         artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        if run_id in self.cancel_requested_ids:
+            self.cancel_requested_ids.discard(run_id)
+            try:
+                shutil.rmtree(package_dir, ignore_errors=True)
+            except Exception:
+                pass
+            await manager.broadcast("export/failed", {
+                "run_id": run_id,
+                "project_id": project_id,
+                "variant_id": variant_id,
+                "target_id": target_id,
+                "error": "Cancelled by user",
+                "cancelled": True
+            })
+            return
 
         script_path = os.path.join(os.path.dirname(__file__), "../runners/yolo_export.py")
         script_args = [
@@ -482,58 +582,77 @@ class Orchestrator:
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd
         )
+        self.active_processes[run_id] = process
 
-        with open(logs_path, "a") as f_log:
-            async def read_stream(stream, is_stderr=False):
-                while True:
-                    line = await stream.readline()
-                    if not line:
-                        break
-                    decoded_line = line.decode("utf-8", errors="replace").strip()
-                    if not decoded_line:
-                        continue
+        try:
+            with open(logs_path, "a") as f_log:
+                async def read_stream(stream, is_stderr=False):
+                    while True:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        decoded_line = line.decode("utf-8", errors="replace").strip()
+                        if not decoded_line:
+                            continue
 
-                    f_log.write(f"[{datetime.now().isoformat()}] {decoded_line}\n")
-                    f_log.flush()
+                        f_log.write(f"[{datetime.now().isoformat()}] {decoded_line}\n")
+                        f_log.flush()
 
-                    if decoded_line.startswith("VF_EVENT:"):
-                        try:
-                            json_str = decoded_line[len("VF_EVENT:"):].strip()
-                            event_data = json.loads(json_str)
-                            event_type = event_data.get("type")
-                            payload = event_data.get("payload") or {}
-                            if isinstance(payload, dict):
-                                payload.setdefault("run_id", run_id)
-                                payload.setdefault("project_id", project_id)
-                                payload.setdefault("variant_id", variant_id)
-                                payload.setdefault("target_id", target_id)
-                            await manager.broadcast(event_type, payload)
-                        except json.JSONDecodeError:
-                            logger.error(f"Failed to parse export event: {decoded_line}")
-                        continue
+                        if decoded_line.startswith("VF_EVENT:"):
+                            try:
+                                json_str = decoded_line[len("VF_EVENT:"):].strip()
+                                event_data = json.loads(json_str)
+                                event_type = event_data.get("type")
+                                payload = event_data.get("payload") or {}
+                                if isinstance(payload, dict):
+                                    payload.setdefault("run_id", run_id)
+                                    payload.setdefault("project_id", project_id)
+                                    payload.setdefault("variant_id", variant_id)
+                                    payload.setdefault("target_id", target_id)
+                                await manager.broadcast(event_type, payload)
+                            except json.JSONDecodeError:
+                                logger.error(f"Failed to parse export event: {decoded_line}")
+                            continue
 
-                    await manager.broadcast("export/progress", {
-                        "run_id": run_id,
-                        "project_id": project_id,
-                        "variant_id": variant_id,
-                        "target_id": target_id,
-                        "message": decoded_line,
-                        "level": "ERROR" if is_stderr else "INFO"
-                    })
+                        await manager.broadcast("export/progress", {
+                            "run_id": run_id,
+                            "project_id": project_id,
+                            "variant_id": variant_id,
+                            "target_id": target_id,
+                            "message": decoded_line,
+                            "level": "ERROR" if is_stderr else "INFO"
+                        })
 
-            await asyncio.gather(
-                read_stream(process.stdout),
-                read_stream(process.stderr, is_stderr=True)
-            )
+                await asyncio.gather(
+                    read_stream(process.stdout),
+                    read_stream(process.stderr, is_stderr=True)
+                )
 
-        exit_code = await process.wait()
+            exit_code = await process.wait()
+        finally:
+            self.active_processes.pop(run_id, None)
+
         if exit_code != 0:
+            was_cancelled = run_id in self.cancel_requested_ids
+            if was_cancelled:
+                self.cancel_requested_ids.discard(run_id)
+                try:
+                    shutil.rmtree(package_dir, ignore_errors=True)
+                except Exception:
+                    pass
+                zip_candidate = package_dir.with_suffix(".zip")
+                if zip_candidate.exists():
+                    try:
+                        zip_candidate.unlink()
+                    except Exception:
+                        pass
             await manager.broadcast("export/failed", {
                 "run_id": run_id,
                 "project_id": project_id,
                 "variant_id": variant_id,
                 "target_id": target_id,
-                "error": f"exit_code={exit_code}"
+                "error": "Cancelled by user" if was_cancelled else f"exit_code={exit_code}",
+                "cancelled": was_cancelled
             })
             return
 

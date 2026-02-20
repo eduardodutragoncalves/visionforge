@@ -151,3 +151,14 @@ async def deploy_variant(project_id: str, variant_id: str, request: DeployReques
         "target_id": target_id,
         "format": resolved_format
     }
+
+
+@router.post("/projects/{project_id}/deployments/{job_id}/cancel")
+async def cancel_deployment(project_id: str, job_id: str):
+    result = await orchestrator.cancel_export_job(project_id, job_id)
+    status = str(result.get("status") or "")
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail="Deployment job not found")
+    if status == "invalid":
+        raise HTTPException(status_code=400, detail=result.get("message", "Invalid request"))
+    return result

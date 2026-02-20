@@ -96,6 +96,8 @@ type DeployState = {
     stage?: string;
     progress?: number;
     startedAt: number;
+    runId?: string;
+    cancelRequested?: boolean;
 };
 
 type DeploymentInspect = {
@@ -439,7 +441,9 @@ export const ProjectModels = () => {
                     message: 'Deployment started',
                     stage: detail.stage || 'start',
                     progress: 12,
-                    startedAt: prev[variantId]?.startedAt || Date.now()
+                    startedAt: prev[variantId]?.startedAt || Date.now(),
+                    runId: detail.run_id || prev[variantId]?.runId,
+                    cancelRequested: false
                 }
             }));
         };
@@ -457,7 +461,9 @@ export const ProjectModels = () => {
                         ...current,
                         message: detail.message || current.message,
                         stage: detail.stage || current.stage,
-                        progress: deriveProgress(detail, current)
+                        progress: deriveProgress(detail, current),
+                        runId: detail.run_id || current.runId,
+                        cancelRequested: detail.cancel_requested ? true : current.cancelRequested
                     }
                 };
             });
@@ -485,6 +491,10 @@ export const ProjectModels = () => {
                     delete next[variantId];
                     return next;
                 });
+            }
+            if (detail.cancelled) {
+                setDeployNotice(`Deployment cancelled for ${variantId || 'job'} (${targetLabel(detail.target_id)}).`);
+                return;
             }
             setDeployNotice(`Deployment failed: ${detail.error || 'Unknown error'}`);
         };
@@ -519,7 +529,9 @@ export const ProjectModels = () => {
                 message: 'Queued',
                 stage: 'queue',
                 progress: 5,
-                startedAt: Date.now()
+                startedAt: Date.now(),
+                runId: undefined,
+                cancelRequested: false
             }
         }));
         setDeployModalVariant(null);
@@ -529,6 +541,28 @@ export const ProjectModels = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ target_id: selectedTargetId })
         });
+
+        if (res.ok) {
+            try {
+                const payload = await res.json();
+                if (payload?.job_id) {
+                    setDeployingByVariant((prev) => {
+                        const current = prev[variantId];
+                        if (!current) return prev;
+                        return {
+                            ...prev,
+                            [variantId]: {
+                                ...current,
+                                runId: String(payload.job_id)
+                            }
+                        };
+                    });
+                }
+            } catch {
+                // ignore
+            }
+            return;
+        }
 
         if (!res.ok) {
             setDeployingByVariant((prev) => {
@@ -540,6 +574,65 @@ export const ProjectModels = () => {
             setDeployNotice(`Failed to queue deployment: ${text}`);
         }
     };
+
+    const cancelDeploy = useCallback(async (variantId: string) => {
+        if (!projectId) return;
+        const current = deployingByVariant[variantId];
+        if (!current) return;
+        if (current.cancelRequested) return;
+        if (!current.runId) {
+            setDeployNotice('Cancellation is unavailable until the deployment job ID is assigned.');
+            return;
+        }
+
+        setDeployingByVariant((prev) => {
+            const state = prev[variantId];
+            if (!state) return prev;
+            return {
+                ...prev,
+                [variantId]: {
+                    ...state,
+                    cancelRequested: true,
+                    message: 'Cancellation requested...'
+                }
+            };
+        });
+
+        try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/deployments/${current.runId}/cancel`, {
+                method: 'POST'
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || 'Failed to cancel deployment');
+            }
+            const payload = await res.json();
+            const status = String(payload?.status || '');
+            if (status === 'cancelled_queued') {
+                setDeployingByVariant((prev) => {
+                    const next = { ...prev };
+                    delete next[variantId];
+                    return next;
+                });
+                setDeployNotice(`Deployment cancelled for ${variantId} before execution.`);
+                return;
+            }
+            setDeployNotice(`Cancellation requested for ${variantId}.`);
+        } catch (error: any) {
+            setDeployingByVariant((prev) => {
+                const state = prev[variantId];
+                if (!state) return prev;
+                return {
+                    ...prev,
+                    [variantId]: {
+                        ...state,
+                        cancelRequested: false
+                    }
+                };
+            });
+            setDeployNotice(`Failed to cancel deployment: ${error?.message || 'unknown error'}`);
+        }
+    }, [deployingByVariant, projectId]);
 
     const activeDeployEntries = useMemo(
         () => Object.entries(deployingByVariant),
