@@ -1003,6 +1003,134 @@ export const ProjectModels = () => {
             )}
 
             <Card className="border border-graphite-700/70 bg-graphite-900/35">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-2">
+                        <Server size={16} className="text-accent-primary" />
+                        <div>
+                            <div className="text-sm font-semibold uppercase tracking-[0.24em]">Deployment Manager</div>
+                            <div className="text-xs text-secondary">Dedicated view for generated deployment artifacts.</div>
+                        </div>
+                    </div>
+                    <div className="text-xs uppercase tracking-[0.24em] text-secondary">
+                        {filteredDeploymentRecords.length} / {deploymentRecords.length} deployments
+                    </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <Input
+                        label="Search Deployments"
+                        placeholder="Variant, target, format, path"
+                        value={deploymentSearchQuery}
+                        onChange={(e) => setDeploymentSearchQuery(e.target.value)}
+                    />
+                    <Select
+                        label="Target"
+                        value={deploymentTargetFilter}
+                        onChange={(e) => setDeploymentTargetFilter(e.target.value)}
+                        options={[
+                            { value: 'all', label: 'All targets' },
+                            ...DEPLOYMENT_TARGETS.map((target) => ({ value: target.id, label: target.label }))
+                        ]}
+                    />
+                    <Select
+                        label="Sort"
+                        value={deploymentSortBy}
+                        onChange={(e) => setDeploymentSortBy(e.target.value as DeploymentSortBy)}
+                        options={[
+                            { value: 'newest', label: 'Newest first' },
+                            { value: 'oldest', label: 'Oldest first' },
+                            { value: 'variant_asc', label: 'Variant (A-Z)' },
+                            { value: 'target_asc', label: 'Target (A-Z)' }
+                        ]}
+                    />
+                </div>
+
+                {deploymentRecords.length === 0 ? (
+                    <div className="mt-4 rounded-lg border border-dashed border-graphite-700/70 px-3 py-4 text-sm text-secondary">
+                        No deployments generated yet.
+                    </div>
+                ) : filteredDeploymentRecords.length === 0 ? (
+                    <div className="mt-4 rounded-lg border border-dashed border-graphite-700/70 px-3 py-4 text-sm text-secondary">
+                        No deployments match current filters.
+                    </div>
+                ) : (
+                    <div className="mt-4 max-h-[440px] space-y-2 overflow-y-auto pr-1">
+                        {filteredDeploymentRecords.map((record) => {
+                            const { variant, deployment, key } = record;
+                            const isDeleting = deletingDeploymentKey === key;
+                            return (
+                                <div
+                                    key={key}
+                                    className="rounded-lg border border-graphite-700/70 bg-graphite-900/55 px-3 py-3"
+                                >
+                                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                        <div className="min-w-0">
+                                            <div className="truncate text-sm font-semibold text-bone">{variant.name}</div>
+                                            <div className="mt-0.5 flex flex-wrap gap-2 text-[11px] text-secondary">
+                                                <span>ID {deployment.id || '—'}</span>
+                                                <span>Target {targetLabel(deployment.target_id)}</span>
+                                                <span>Format {deployment.format || 'onnx'}</span>
+                                                <span>Created {formatDate(deployment.created_at)}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            <Button size="sm" variant="secondary" onClick={() => setDeployInspect({ variant, deployment })}>
+                                                Inspect
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => openReadmePreview(variant, deployment)}
+                                                disabled={readmeLoading || !deployment.readme_path}
+                                            >
+                                                Readme
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={async () => {
+                                                    const result = await window.ipcRenderer?.openPath?.(deployment.package_dir || '');
+                                                    if (result?.ok === false) {
+                                                        setDeployNotice(`Could not open folder: ${result.message || 'unknown error'}`);
+                                                    }
+                                                }}
+                                                disabled={!deployment.package_dir}
+                                            >
+                                                Open Folder
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={async () => {
+                                                    const result = await window.ipcRenderer?.revealPath?.(deployment.package_zip_path || '');
+                                                    if (result?.ok === false) {
+                                                        setDeployNotice(`Could not open zip: ${result.message || 'unknown error'}`);
+                                                    }
+                                                }}
+                                                disabled={!deployment.package_zip_path}
+                                            >
+                                                Reveal Zip
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="text-error hover:text-error"
+                                                onClick={() => handleDeleteDeployment(variant, deployment)}
+                                                disabled={isDeleting}
+                                            >
+                                                <Trash2 size={13} className="mr-1" />
+                                                {isDeleting ? 'Deleting...' : 'Delete'}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </Card>
+
+            <Card className="border border-graphite-700/70 bg-graphite-900/35">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <Input
                         label="Search"
@@ -1464,6 +1592,17 @@ export const ProjectModels = () => {
                             >
                                 <ExternalLink size={14} className="mr-1" />
                                 Reveal Zip
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                className="text-error hover:text-error"
+                                onClick={() => handleDeleteDeployment(deployInspect.variant, deployInspect.deployment)}
+                                disabled={deletingDeploymentKey === `${deployInspect.variant.id}::${deployInspect.deployment.id || ''}::${deployInspect.deployment.package_dir || ''}`}
+                            >
+                                <Trash2 size={14} className="mr-1" />
+                                {deletingDeploymentKey === `${deployInspect.variant.id}::${deployInspect.deployment.id || ''}::${deployInspect.deployment.package_dir || ''}`
+                                    ? 'Deleting...'
+                                    : 'Delete Deployment'}
                             </Button>
                         </div>
                     </div>
