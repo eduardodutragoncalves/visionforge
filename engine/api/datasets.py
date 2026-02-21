@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 import mimetypes
@@ -115,6 +116,31 @@ async def get_image_file(project_id: str, image_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/projects/{project_id}/dataset/images/{image_id}/thumbnail")
+async def get_image_thumbnail(project_id: str, image_id: str, size: int = 256):
+    try:
+        thumbnail_path = await asyncio.to_thread(
+            dataset_service.get_or_create_thumbnail_path,
+            project_id,
+            image_id,
+            size
+        )
+        return FileResponse(
+            str(thumbnail_path),
+            media_type="image/jpeg",
+            filename=thumbnail_path.name,
+            headers={"Cache-Control": "public, max-age=86400"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        message = str(e)
+        if "not found" in message.lower():
+            raise HTTPException(status_code=404, detail=message)
+        if "not allowed" in message.lower():
+            raise HTTPException(status_code=403, detail=message)
+        raise HTTPException(status_code=400, detail=message)
 
 @router.delete("/projects/{project_id}/dataset/images/{image_id}")
 async def delete_image(project_id: str, image_id: str):

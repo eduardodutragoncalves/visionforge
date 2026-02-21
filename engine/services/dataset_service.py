@@ -8,7 +8,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from engine.core.events import manager
 from engine.io import paths, manifests
@@ -26,6 +26,9 @@ CLASS_COLOR_POOL = [
     "#ff5c6f",
     "#7bdff2"
 ]
+THUMBNAIL_MIN_SIZE = 64
+THUMBNAIL_MAX_SIZE = 1024
+THUMBNAIL_DEFAULT_SIZE = 256
 
 def _now() -> str:
     return datetime.utcnow().isoformat()
@@ -37,6 +40,78 @@ def _assign_color(index: int) -> str:
     return CLASS_COLOR_POOL[index % len(CLASS_COLOR_POOL)]
 
 class DatasetService:
+    def _normalize_thumbnail_size(self, size: int) -> int:
+        safe = int(size or THUMBNAIL_DEFAULT_SIZE)
+        return max(THUMBNAIL_MIN_SIZE, min(THUMBNAIL_MAX_SIZE, safe))
+
+    def _thumbnail_cache_root(self, project_id: str) -> Path:
+        return paths.get_project_dataset_dir(project_id) / ".thumbnails"
+
+    def _thumbnail_cache_path(self, project_id: str, image_id: str, size: int) -> Path:
+        safe_size = self._normalize_thumbnail_size(size)
+        return self._thumbnail_cache_root(project_id) / f"s{safe_size}" / f"{image_id}.jpg"
+
+    def _cleanup_thumbnail_cache(self, project_id: str, image_id: str):
+        cache_root = self._thumbnail_cache_root(project_id)
+        if not cache_root.exists():
+            return
+        for size_dir in cache_root.iterdir():
+            if not size_dir.is_dir():
+                continue
+            candidate = size_dir / f"{image_id}.jpg"
+            if candidate.exists():
+                try:
+                    candidate.unlink()
+                except OSError:
+                    logger.warning("Unable to delete cached thumbnail: %s", candidate)
+                    continue
+            try:
+                if not any(size_dir.iterdir()):
+                    size_dir.rmdir()
+            except OSError:
+                pass
+        try:
+            if cache_root.exists() and not any(cache_root.iterdir()):
+                cache_root.rmdir()
+        except OSError:
+            pass
+
+    def get_or_create_thumbnail_path(self, project_id: str, image_id: str, size: int = THUMBNAIL_DEFAULT_SIZE) -> Path:
+        image_path = Path(self.get_image_path(project_id, image_id)).resolve()
+        dataset_dir = paths.get_project_dataset_dir(project_id).resolve()
+        if not str(image_path).startswith(str(dataset_dir)):
+            raise ValueError("Image path not allowed")
+        if not image_path.exists():
+            raise ValueError("Image file not found")
+
+        safe_size = self._normalize_thumbnail_size(size)
+        thumbnail_path = self._thumbnail_cache_path(project_id, image_id, safe_size)
+        thumbnail_dir = thumbnail_path.parent
+        paths.ensure_dirs(thumbnail_dir)
+
+        source_mtime_ns = image_path.stat().st_mtime_ns
+        if thumbnail_path.exists():
+            try:
+                if thumbnail_path.stat().st_mtime_ns >= source_mtime_ns:
+                    return thumbnail_path
+            except OSError:
+                pass
+
+        with Image.open(image_path) as image:
+            image = ImageOps.exif_transpose(image)
+            if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+                background = Image.new("RGBA", image.size, (12, 20, 27, 255))
+                background.alpha_composite(image.convert("RGBA"))
+                image = background.convert("RGB")
+            else:
+                image = image.convert("RGB")
+
+            resampling = getattr(Image, "Resampling", Image)
+            image.thumbnail((safe_size, safe_size), resampling.LANCZOS)
+            image.save(thumbnail_path, format="JPEG", quality=82, optimize=True)
+
+        return thumbnail_path
+
     def _file_content_hash(self, file_path: str, chunk_size: int = 1024 * 1024) -> str:
         digest = hashlib.sha256()
         with open(file_path, "rb") as fh:
@@ -571,6 +646,7 @@ class DatasetService:
                     resolved_path.unlink()
                 except OSError:
                     logger.warning("Unable to delete image file: %s", resolved_path)
+            self._cleanup_thumbnail_cache(project_id, image_id)
             deleted_ids.append(image_id)
 
         if deleted_ids:

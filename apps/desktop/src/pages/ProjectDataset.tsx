@@ -390,9 +390,20 @@ export const ProjectDataset = () => {
         setImageOffset(offset);
         setImageTotal(total);
     };
+    const classificationThumbPixelSize = useMemo(() => {
+        if (thumbSize === 'sm') return 192;
+        if (thumbSize === 'xl') return 384;
+        return 256;
+    }, [thumbSize]);
     const getImageSrc = (image: DatasetImage) => {
         if (projectId) {
             return `${API_BASE_URL}/projects/${projectId}/dataset/images/${image.id}/file`;
+        }
+        return toFileUrl(image.path);
+    };
+    const getImageThumbnailSrc = (image: DatasetImage, size: number) => {
+        if (projectId) {
+            return `${API_BASE_URL}/projects/${projectId}/dataset/images/${image.id}/thumbnail?size=${Math.max(64, Math.trunc(size || 256))}`;
         }
         return toFileUrl(image.path);
     };
@@ -2837,7 +2848,7 @@ export const ProjectDataset = () => {
                                             </div>
                                         )}
                                         <img
-                                            src={getImageSrc(image)}
+                                            src={getImageThumbnailSrc(image, classificationThumbPixelSize)}
                                             alt={image.id}
                                             className="thumb-image"
                                             loading="lazy"
@@ -3405,7 +3416,7 @@ export const ProjectDataset = () => {
                                                     </span>
                                                 )}
                                                 <img
-                                                    src={getImageSrc(image)}
+                                                    src={getImageThumbnailSrc(image, 256)}
                                                     alt={image.id}
                                                     className="h-24 w-full object-cover bg-graphite-950/70"
                                                     loading="lazy"
