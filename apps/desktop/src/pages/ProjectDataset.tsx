@@ -123,6 +123,10 @@ type DuplicateResolutionAction = 'ignore' | 'delete_keep_one' | 'delete_all';
 
 const API_BASE_URL = ENGINE_HTTP_URL;
 const IMAGE_PAGE_SIZE = 500;
+const CLASSIFICATION_INITIAL_RENDER = 120;
+const CLASSIFICATION_RENDER_CHUNK = 80;
+const DETECTION_INITIAL_RENDER = 90;
+const DETECTION_RENDER_CHUNK = 60;
 const PRECLASSIFY_ENABLED = false;
 type SaveStatus = 'idle' | 'saving' | 'pending' | 'saved';
 type PendingSave =
@@ -250,6 +254,8 @@ export const ProjectDataset = () => {
     const [saveError, setSaveError] = useState<string | null>(null);
     const [imageOffset, setImageOffset] = useState(0);
     const [imageTotal, setImageTotal] = useState(0);
+    const [classificationRenderCount, setClassificationRenderCount] = useState(CLASSIFICATION_INITIAL_RENDER);
+    const [detectionRenderCount, setDetectionRenderCount] = useState(DETECTION_INITIAL_RENDER);
     const [isPreclassifying, setIsPreclassifying] = useState(false);
     const [preclassifyModel, setPreclassifyModel] = useState('yolov8n-cls.pt');
     const [preclassifyTopK, setPreclassifyTopK] = useState(3);
@@ -293,6 +299,12 @@ export const ProjectDataset = () => {
     const imageRef = useRef<HTMLImageElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const detectionLayoutRef = useRef<HTMLDivElement | null>(null);
+    const classificationGridRef = useRef<HTMLDivElement | null>(null);
+    const detectionGridRef = useRef<HTMLDivElement | null>(null);
+    const classificationSentinelRef = useRef<HTMLDivElement | null>(null);
+    const detectionSentinelRef = useRef<HTMLDivElement | null>(null);
+    const aspectUpdateBufferRef = useRef<Record<string, ImageOrientation>>({});
+    const aspectUpdateRafRef = useRef<number | null>(null);
     const detectionActiveIndexRef = useRef(0);
     const augmentationRequestIdRef = useRef<string | null>(null);
     const pendingRef = useRef<PendingSave[]>([]);
@@ -431,6 +443,11 @@ export const ProjectDataset = () => {
         return labeledImagesByAugmentedFilter.filter((image) => image.labels.includes(labeledClassFilter));
     }, [labeledImagesByAugmentedFilter, labeledClassFilter]);
     const visibleImages = classificationTab === 'labeled' ? filteredLabeledImages : filteredUnlabeledImages;
+    const renderedClassificationImages = useMemo(
+        () => visibleImages.slice(0, classificationRenderCount),
+        [visibleImages, classificationRenderCount]
+    );
+    const canLoadMoreClassification = renderedClassificationImages.length < visibleImages.length;
     const classificationAugmentedCount = useMemo(
         () => images.filter((image) => Boolean(image.is_augmented)).length,
         [images]
@@ -466,6 +483,11 @@ export const ProjectDataset = () => {
     }, [detectionLabeledImages, detectionLabeledClassFilters]);
     const detectionVisibleImages =
         detectionTab === 'labeled' ? filteredDetectionLabeledImages : detectionUnlabeledImages;
+    const renderedDetectionImages = useMemo(
+        () => detectionVisibleImages.slice(0, detectionRenderCount),
+        [detectionVisibleImages, detectionRenderCount]
+    );
+    const canLoadMoreDetection = renderedDetectionImages.length < detectionVisibleImages.length;
     const detectionTotal = images.length;
     const detectionDone = detectionLabeledImages.length;
     const detectionRemaining = Math.max(detectionTotal - detectionDone, 0);
