@@ -617,6 +617,15 @@ export const ProjectModels = () => {
                 setDeployNotice(`Deployment cancelled for ${variantId} before execution.`);
                 return;
             }
+            if (status === 'cancel_requested') {
+                setDeployingByVariant((prev) => {
+                    const next = { ...prev };
+                    delete next[variantId];
+                    return next;
+                });
+                setDeployNotice(`Cancellation requested for ${variantId}. Cleaning generated deployment files...`);
+                return;
+            }
             setDeployNotice(`Cancellation requested for ${variantId}.`);
         } catch (error: any) {
             setDeployingByVariant((prev) => {

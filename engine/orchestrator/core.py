@@ -163,6 +163,10 @@ class Orchestrator:
             if process and process.returncode is None:
                 try:
                     process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=3)
+                    except asyncio.TimeoutError:
+                        process.kill()
                 except ProcessLookupError:
                     pass
                 except Exception as exc:
@@ -179,6 +183,18 @@ class Orchestrator:
             return {"status": "cancel_requested", "run_id": run_id}
 
         return {"status": "not_found"}
+
+    def _cleanup_cancelled_export_artifacts(self, package_dir):
+        try:
+            shutil.rmtree(package_dir, ignore_errors=True)
+        except Exception:
+            pass
+        zip_candidate = package_dir.with_suffix(".zip")
+        if zip_candidate.exists():
+            try:
+                zip_candidate.unlink()
+            except Exception:
+                pass
 
     async def _run_job(self, job):
         project_id = job["project_id"]
@@ -533,10 +549,7 @@ class Orchestrator:
 
         if run_id in self.cancel_requested_ids:
             self.cancel_requested_ids.discard(run_id)
-            try:
-                shutil.rmtree(package_dir, ignore_errors=True)
-            except Exception:
-                pass
+            self._cleanup_cancelled_export_artifacts(package_dir)
             await manager.broadcast("export/failed", {
                 "run_id": run_id,
                 "project_id": project_id,
@@ -632,27 +645,28 @@ class Orchestrator:
         finally:
             self.active_processes.pop(run_id, None)
 
-        if exit_code != 0:
-            was_cancelled = run_id in self.cancel_requested_ids
-            if was_cancelled:
-                self.cancel_requested_ids.discard(run_id)
-                try:
-                    shutil.rmtree(package_dir, ignore_errors=True)
-                except Exception:
-                    pass
-                zip_candidate = package_dir.with_suffix(".zip")
-                if zip_candidate.exists():
-                    try:
-                        zip_candidate.unlink()
-                    except Exception:
-                        pass
+        was_cancelled = run_id in self.cancel_requested_ids
+        if was_cancelled:
+            self.cancel_requested_ids.discard(run_id)
+            self._cleanup_cancelled_export_artifacts(package_dir)
             await manager.broadcast("export/failed", {
                 "run_id": run_id,
                 "project_id": project_id,
                 "variant_id": variant_id,
                 "target_id": target_id,
-                "error": "Cancelled by user" if was_cancelled else f"exit_code={exit_code}",
-                "cancelled": was_cancelled
+                "error": "Cancelled by user",
+                "cancelled": True
+            })
+            return
+
+        if exit_code != 0:
+            await manager.broadcast("export/failed", {
+                "run_id": run_id,
+                "project_id": project_id,
+                "variant_id": variant_id,
+                "target_id": target_id,
+                "error": f"exit_code={exit_code}",
+                "cancelled": False
             })
             return
 
