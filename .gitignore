@@ -13,5 +13,6 @@ env
 coverage
 workspace/
 *.pt
+.agent/
 .agent/auto-commit-watch.log
 .agent/auto-commit-watch.pid
