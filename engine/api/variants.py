@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import shutil
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -162,3 +163,101 @@ async def cancel_deployment(project_id: str, job_id: str):
     if status == "invalid":
         raise HTTPException(status_code=400, detail=result.get("message", "Invalid request"))
     return result
+
+
+@router.delete("/projects/{project_id}/variants/{variant_id}/deployments/{deployment_id}")
+async def delete_deployment(project_id: str, variant_id: str, deployment_id: str):
+    variant_dir = paths.get_variant_dir(project_id, variant_id)
+    if not variant_dir.exists():
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    deploy_root = variant_dir / "deploy"
+    if not deploy_root.exists():
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    variant_root_resolved = variant_dir.resolve()
+    matched = None
+
+    for target_dir in deploy_root.iterdir():
+        if not target_dir.is_dir():
+            continue
+        for package_dir in target_dir.iterdir():
+            if not package_dir.is_dir():
+                continue
+            manifest_path = package_dir / "manifest.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                deployment = manifests.load_manifest(manifest_path)
+            except Exception:
+                continue
+            if str(deployment.get("id") or "") != deployment_id:
+                continue
+            matched = {
+                "target_dir": target_dir,
+                "package_dir": package_dir,
+                "deployment": deployment,
+            }
+            break
+        if matched:
+            break
+
+    if not matched:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    package_dir = matched["package_dir"]
+    deployment = matched["deployment"]
+
+    declared_package_dir = deployment.get("package_dir")
+    if declared_package_dir:
+        candidate = Path(str(declared_package_dir)).expanduser()
+        if candidate.exists():
+            try:
+                if candidate.resolve().is_relative_to(variant_root_resolved):
+                    package_dir = candidate.resolve()
+            except Exception:
+                pass
+
+    if not package_dir.exists():
+        # Already removed, continue with zip cleanup.
+        pass
+    else:
+        try:
+            if not package_dir.resolve().is_relative_to(variant_root_resolved):
+                raise HTTPException(status_code=400, detail="Unsafe deployment path")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=400, detail="Unsafe deployment path")
+        shutil.rmtree(package_dir, ignore_errors=True)
+
+    zip_candidates = []
+    package_zip_path = deployment.get("package_zip_path")
+    if package_zip_path:
+        zip_candidates.append(Path(str(package_zip_path)).expanduser())
+    zip_candidates.append(package_dir.with_suffix(".zip"))
+
+    for zip_path in zip_candidates:
+        try:
+            resolved = zip_path.resolve()
+            if not resolved.is_relative_to(variant_root_resolved):
+                continue
+            if resolved.exists():
+                resolved.unlink()
+        except Exception:
+            continue
+
+    target_dir = matched["target_dir"]
+    try:
+        if target_dir.exists() and not any(target_dir.iterdir()):
+            target_dir.rmdir()
+    except Exception:
+        pass
+
+    try:
+        if deploy_root.exists() and not any(deploy_root.iterdir()):
+            deploy_root.rmdir()
+    except Exception:
+        pass
+
+    return {"status": "deleted", "deployment_id": deployment_id, "variant_id": variant_id}

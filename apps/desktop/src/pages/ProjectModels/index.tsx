@@ -17,6 +17,7 @@ import {
     Rocket,
     Server,
     Target,
+    Trash2,
     XCircle
 } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
@@ -105,6 +106,12 @@ type DeploymentInspect = {
     deployment: DeploymentInfo;
 };
 
+type DeploymentRecord = {
+    key: string;
+    variant: Variant;
+    deployment: DeploymentInfo;
+};
+
 type ReadmeInspect = {
     title: string;
     targetLabel: string;
@@ -130,6 +137,8 @@ type ModelSortBy =
     | 'validation_coverage_desc'
     | 'deployments_desc'
     | 'name_asc';
+
+type DeploymentSortBy = 'newest' | 'oldest' | 'variant_asc' | 'target_asc';
 
 const targetLabel = (targetId?: string) => {
     if (!targetId) return 'Unknown target';
@@ -410,6 +419,10 @@ export const ProjectModels = () => {
     const [modelValidationFilter, setModelValidationFilter] = useState<ModelValidationFilter>('all');
     const [modelDeploymentFilter, setModelDeploymentFilter] = useState<ModelDeploymentFilter>('all');
     const [modelSortBy, setModelSortBy] = useState<ModelSortBy>('newest');
+    const [deploymentSearchQuery, setDeploymentSearchQuery] = useState('');
+    const [deploymentTargetFilter, setDeploymentTargetFilter] = useState<string>('all');
+    const [deploymentSortBy, setDeploymentSortBy] = useState<DeploymentSortBy>('newest');
+    const [deletingDeploymentKey, setDeletingDeploymentKey] = useState<string | null>(null);
 
     const fetchVariants = useCallback(async () => {
         if (!projectId) return;
@@ -643,10 +656,99 @@ export const ProjectModels = () => {
         }
     }, [deployingByVariant, projectId]);
 
+    const handleDeleteDeployment = useCallback(async (variant: Variant, deployment: DeploymentInfo) => {
+        if (!projectId) return;
+        const deploymentId = String(deployment.id || '').trim();
+        if (!deploymentId) {
+            setDeployNotice('Cannot delete deployment: missing deployment id.');
+            return;
+        }
+        const key = `${variant.id}::${deploymentId}::${deployment.package_dir || ''}`;
+        const confirmed = window.confirm(
+            `Delete deployment ${deploymentId} for ${variant.name} (${targetLabel(deployment.target_id)})?\n\n` +
+            'This removes the package folder and generated zip.'
+        );
+        if (!confirmed) return;
+
+        setDeletingDeploymentKey(key);
+        try {
+            const res = await fetch(
+                `${ENGINE_HTTP_URL}/projects/${projectId}/variants/${variant.id}/deployments/${deploymentId}`,
+                { method: 'DELETE' }
+            );
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || 'Failed to delete deployment');
+            }
+            if (deployInspect && deployInspect.variant.id === variant.id && String(deployInspect.deployment.id || '') === deploymentId) {
+                setDeployInspect(null);
+            }
+            setDeployNotice(`Deployment ${deploymentId} deleted successfully.`);
+            await fetchVariants();
+        } catch (error: any) {
+            setDeployNotice(`Failed to delete deployment: ${error?.message || 'unknown error'}`);
+        } finally {
+            setDeletingDeploymentKey(null);
+        }
+    }, [deployInspect, fetchVariants, projectId]);
+
     const activeDeployEntries = useMemo(
         () => Object.entries(deployingByVariant),
         [deployingByVariant]
     );
+
+    const deploymentRecords = useMemo<DeploymentRecord[]>(() => {
+        const rows: DeploymentRecord[] = [];
+        variants.forEach((variant) => {
+            (variant.deployments || []).forEach((deployment, index) => {
+                const key = `${variant.id}::${deployment.id || `idx_${index}`}::${deployment.package_dir || ''}`;
+                rows.push({ key, variant, deployment });
+            });
+        });
+        return rows;
+    }, [variants]);
+
+    const filteredDeploymentRecords = useMemo(() => {
+        const query = deploymentSearchQuery.trim().toLowerCase();
+        const parseTimestamp = (value?: string) => {
+            const ts = Date.parse(String(value || ''));
+            return Number.isNaN(ts) ? 0 : ts;
+        };
+
+        const rows = deploymentRecords.filter((record) => {
+            const targetId = String(record.deployment.target_id || '').trim();
+            if (deploymentTargetFilter !== 'all' && targetId !== deploymentTargetFilter) {
+                return false;
+            }
+            if (!query) return true;
+            const searchable = [
+                record.variant.name,
+                record.variant.id,
+                record.deployment.id,
+                record.deployment.target_id,
+                record.deployment.target_label,
+                record.deployment.format,
+                record.deployment.package_dir,
+                record.deployment.package_zip_path
+            ].join(' ').toLowerCase();
+            return searchable.includes(query);
+        });
+
+        rows.sort((a, b) => {
+            if (deploymentSortBy === 'newest') {
+                return parseTimestamp(b.deployment.created_at) - parseTimestamp(a.deployment.created_at);
+            }
+            if (deploymentSortBy === 'oldest') {
+                return parseTimestamp(a.deployment.created_at) - parseTimestamp(b.deployment.created_at);
+            }
+            if (deploymentSortBy === 'variant_asc') {
+                return String(a.variant.name || a.variant.id).localeCompare(String(b.variant.name || b.variant.id));
+            }
+            return targetLabel(a.deployment.target_id).localeCompare(targetLabel(b.deployment.target_id));
+        });
+
+        return rows;
+    }, [deploymentRecords, deploymentSearchQuery, deploymentSortBy, deploymentTargetFilter]);
 
     const filteredVariants = useMemo(() => {
         const query = modelSearchQuery.trim().toLowerCase();
