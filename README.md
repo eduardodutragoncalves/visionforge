@@ -1,125 +1,133 @@
 # VisionForge
 
-Monorepo for VisionForge - Local CV Training Desktop App.
+VisionForge is an end-to-end desktop platform to build, train, validate, and deploy computer vision models locally.
 
-## Structure
+It is designed for teams that need practical MLOps for Classification and Object Detection, with a fast UI and edge-ready deployment packages.
 
-- `apps/desktop`: Electron + React + Vite + TS
-- `engine`: Python + FastAPI
-- `shared`: Shared assets/schemas
+![VisionForge Dashboard](docs/screenshots/dashboard.png)
 
-## What you need
+## Why VisionForge
 
-- Node.js 18+ (npm or pnpm)
-- Python 3.10+ (use pyenv, conda, or system Python)
-- Optional: Anaconda or Miniconda
-- Optional: Docker Desktop/Engine (only for Docker runtime in training)
+- Build production-ready CV pipelines without juggling multiple tools.
+- Keep your data and training workflow local-first.
+- Compare models quickly and make deployment decisions with confidence.
+- Generate target-specific deployment artifacts for edge and desktop environments.
 
-## Install JS dependencies
+## Core Capabilities
+
+### Dataset Studio
+
+- Import images from folders, files, and videos.
+- Label data for Classification and Object Detection.
+- Validate dataset integrity (corrupted files, duplicate detection, progress tracking).
+- Resolve duplicates directly from the UI (ignore, keep one, remove all).
+- Fast thumbnail loading for large datasets (UI optimization).
+
+Note: thumbnails are used only for interface performance. Training always uses original images.
+
+### Training Orchestration
+
+- Ultralytics-based training pipeline.
+- Split controls (train/val/test).
+- Local runtime options (system Python, Conda, Docker).
+- Live progress, metrics, and logs.
+
+### Model Validation and Comparison
+
+- Validate model predictions against real validation images.
+- Track correctness and coverage over time.
+- Highlight key metrics for decision-making (train and validation accuracy).
+
+### Model Registry and Deployment Manager
+
+- Centralized model cards with filters and sorting.
+- Dedicated deployment manager to inspect generated packages.
+- Delete generated deployments directly from the UI.
+- Cancel deployment generation and clean partial artifacts safely.
+
+### Edge-Ready Packaging
+
+- Target-aware deployment outputs (for example: Jetson, Raspberry Pi, Desktop).
+- Includes platform-specific README and run instructions.
+- Bundles only validation images for post-deploy verification.
+
+## Product Screens
+
+### Projects
+
+![VisionForge Projects](docs/screenshots/projects.png)
+
+### Dataset
+
+![VisionForge Dataset](docs/screenshots/dataset.png)
+
+### Training Setup
+
+![VisionForge Train Setup](docs/screenshots/train-setup.png)
+
+### Models and Deployment
+
+![VisionForge Models](docs/screenshots/models.png)
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.10+
+- Optional: Conda
+- Optional: Docker
+
+### Install
 
 ```bash
 npm install
+python -m venv engine/venv
+source engine/venv/bin/activate  # Windows: engine\\venv\\Scripts\\activate
+pip install -r engine/requirements.txt
 ```
 
-## Python setup (choose ONE)
-
-### Option A: pyenv + venv (recommended for local dev)
-
-1. Install pyenv: https://github.com/pyenv/pyenv#installation
-2. Install and select a Python version:
-   ```bash
-   pyenv install 3.10.13
-   pyenv local 3.10.13
-   ```
-3. Create and activate a virtual environment:
-   ```bash
-   python -m venv engine/venv
-   source engine/venv/bin/activate  # or engine\venv\Scripts\activate on Windows
-   ```
-4. Install engine dependencies:
-   ```bash
-   pip install -r engine/requirements.txt
-   ```
-
-### Option B: conda environment (Anaconda/Miniconda)
-
-1. Create and activate a conda env:
-   ```bash
-   conda create -n visionforge python=3.10 -y
-   conda activate visionforge
-   ```
-2. Install engine dependencies:
-   ```bash
-   pip install -r engine/requirements.txt
-   ```
-
-### Option C: system Python + venv
-
-1. Create and activate a virtual environment:
-   ```bash
-   python -m venv engine/venv
-   source engine/venv/bin/activate  # or engine\venv\Scripts\activate on Windows
-   ```
-2. Install engine dependencies:
-   ```bash
-   pip install -r engine/requirements.txt
-   ```
-
-## Run in development
-
-1. Activate your Python environment (pyenv/conda/venv).
-2. Run both Desktop and Engine:
-   ```bash
-   npm run dev
-   ```
-
-This will launch:
-- Uvicorn server on http://localhost:8000
-- Vite server for Electron renderer
-- Electron window
-
-## Validation
-
-1. **Frontend:** Confirm the Electron window opens.
-2. **Backend:** Check http://localhost:8000/health returns `{"status": "ok"}`.
-
-## Automatic commits (autosync)
-
-Automatic commit/push can run in the background and create compact, intelligent commit messages based on the current diff.
-
-Commands:
+### Run (Desktop + Engine)
 
 ```bash
-npm run autosync:start    # start background watcher
-npm run autosync:status   # check watcher status
-npm run autosync:stop     # stop watcher
-npm run autosync:once     # commit now (single run)
+npm run dev
 ```
 
-Behavior:
-- Watches repository changes and waits for a short stable window before committing.
-- Uses generated commit subjects with type + scope + short implementation topics.
-- Existing `post-commit` hook pushes to `origin/<current-branch>` when configured.
+This starts:
 
-Optional env vars:
-- `AUTO_SYNC_ENABLED=0` disables autosync.
-- `AUTO_SYNC_INTERVAL_SECONDS` controls watcher poll interval (default `8`).
-- `AUTO_SYNC_STABLE_SECONDS` controls stable window before commit (default `20`).
+- Engine API on `http://127.0.0.1:8000`
+- Desktop renderer (Vite/Electron)
 
-## Training runtime options (inside the app)
+### Health Check
 
-The Desktop app can run training jobs using different runtimes. This does not change how you start the app; it only affects training.
+```bash
+curl http://127.0.0.1:8000/health
+```
 
-### Anaconda
+Expected:
 
-- Requirement: `conda` must be in your PATH and the env must already exist.
-- Usage: In the Train Setup page, select **Anaconda** and provide your env name (example: `visionforge`).
+```json
+{"status":"ok"}
+```
 
-### Docker
+## Repository Structure
 
-- Requirement: Docker daemon must be running.
-- Usage: In the Train Setup page, select **Docker** and provide an image name (example: `ultralytics/ultralytics:latest`).
-- Custom image (runner):
-  ```bash
-  docker build -t vf-runner -f docker/Dockerfile.runner .
-  ```
+- `apps/desktop`: Electron + React + TypeScript UI
+- `engine`: FastAPI services, orchestration, runners
+- `shared`: shared assets/schemas
+- `workspace`: local data, project artifacts, logs
+
+## Automatic Commits (Autosync)
+
+VisionForge can auto-commit local iterations with compact commit messages.
+
+```bash
+npm run autosync:start
+npm run autosync:status
+npm run autosync:stop
+npm run autosync:once
+```
+
+## License
+
+Internal project. Add your preferred license before public distribution.
