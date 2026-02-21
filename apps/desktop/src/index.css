@@ -281,11 +281,22 @@
   .btn {
     @apply inline-flex items-center justify-center gap-2 border border-graphite-700/70 px-4 text-[11px] font-semibold uppercase tracking-[0.32em] text-bone transition-all duration-150;
     border-radius: 14px;
-    background: linear-gradient(160deg, rgba(18, 29, 37, 0.9), rgba(12, 20, 26, 0.9));
+    background: linear-gradient(158deg, rgba(28, 43, 54, 0.5), rgba(11, 20, 27, 0.7));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 
   .btn:disabled {
     @apply opacity-50 cursor-not-allowed;
+  }
+
+  .btn:not(:disabled):hover {
+    @apply border-accent-secondary;
+    background: linear-gradient(158deg, rgba(36, 58, 73, 0.55), rgba(14, 25, 34, 0.76));
+  }
+
+  .btn:not(:disabled):focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px rgba(47, 184, 255, 0.48), 0 0 0 4px rgba(47, 184, 255, 0.16);
   }
 
   .btn-sm {
@@ -316,16 +327,46 @@
   }
 
   .btn-secondary:hover {
-    @apply border-accent-secondary text-bone;
+    @apply text-bone;
     box-shadow: 0 10px 20px rgba(6, 12, 18, 0.5);
   }
 
   .btn-ghost {
-    @apply border-transparent text-haze;
+    @apply border-graphite-700/70 text-haze;
+    background: linear-gradient(158deg, rgba(24, 38, 47, 0.35), rgba(9, 17, 24, 0.5));
   }
 
   .btn-ghost:hover {
-    @apply text-bone;
+    @apply text-bone border-accent-secondary;
+    background: linear-gradient(158deg, rgba(28, 47, 58, 0.4), rgba(12, 21, 29, 0.56));
+  }
+
+  .btn-glass {
+    @apply border-graphite-700/70 text-bone;
+    background: linear-gradient(158deg, rgba(47, 184, 255, 0.12), rgba(12, 20, 27, 0.5));
+    backdrop-filter: blur(8px);
+  }
+
+  .btn-glass:hover {
+    @apply border-accent-primary;
+    background: linear-gradient(158deg, rgba(47, 184, 255, 0.18), rgba(14, 24, 32, 0.58));
+  }
+
+  button:not(.window-button):not(.btn) {
+    border: 1px solid rgba(73, 87, 99, 0.72);
+    background: linear-gradient(158deg, rgba(28, 43, 54, 0.36), rgba(11, 20, 27, 0.56));
+    border-radius: 10px;
+    transition: border-color 150ms ease, background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  }
+
+  button:not(.window-button):not(.btn):not(:disabled):hover {
+    border-color: rgba(95, 211, 255, 0.58);
+    background: linear-gradient(158deg, rgba(34, 54, 67, 0.42), rgba(14, 24, 33, 0.62));
+  }
+
+  button:not(.window-button):not(.btn):focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px rgba(47, 184, 255, 0.44), 0 0 0 3px rgba(47, 184, 255, 0.12);
   }
 
   .stat-chip {
