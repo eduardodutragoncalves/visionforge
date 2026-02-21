@@ -591,13 +591,86 @@ export const ProjectDataset = () => {
         };
     }, [progressImages, classes]);
 
+    useEffect(() => {
+        setClassificationRenderCount(CLASSIFICATION_INITIAL_RENDER);
+    }, [classificationTab, labeledClassFilter, classificationAugmentedFilter, imageOffset, images.length]);
+
+    useEffect(() => {
+        setDetectionRenderCount(DETECTION_INITIAL_RENDER);
+    }, [detectionTab, detectionLabeledClassFilters, imageOffset, images.length]);
+
+    useEffect(() => {
+        const root = classificationGridRef.current;
+        const sentinel = classificationSentinelRef.current;
+        if (!root || !sentinel) return;
+        if (!canLoadMoreClassification) return;
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) return;
+                    setClassificationRenderCount((prev) => Math.min(visibleImages.length, prev + CLASSIFICATION_RENDER_CHUNK));
+                });
+            },
+            { root, rootMargin: '320px 0px', threshold: 0.01 }
+        );
+
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [canLoadMoreClassification, visibleImages.length]);
+
+    useEffect(() => {
+        const root = detectionGridRef.current;
+        const sentinel = detectionSentinelRef.current;
+        if (!root || !sentinel) return;
+        if (!canLoadMoreDetection) return;
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) return;
+                    setDetectionRenderCount((prev) => Math.min(detectionVisibleImages.length, prev + DETECTION_RENDER_CHUNK));
+                });
+            },
+            { root, rootMargin: '260px 0px', threshold: 0.01 }
+        );
+
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [canLoadMoreDetection, detectionVisibleImages.length]);
+
+    useEffect(() => () => {
+        if (aspectUpdateRafRef.current !== null) {
+            window.cancelAnimationFrame(aspectUpdateRafRef.current);
+            aspectUpdateRafRef.current = null;
+        }
+    }, []);
+
     const handleThumbLoad = (imageId: string, event: React.SyntheticEvent<HTMLImageElement>) => {
         const target = event.currentTarget;
         if (!target.naturalWidth || !target.naturalHeight) return;
         const ratio = target.naturalWidth / target.naturalHeight;
         const nextAspect: 'portrait' | 'landscape' | 'square' =
             ratio > 1.15 ? 'landscape' : ratio < 0.85 ? 'portrait' : 'square';
-        setImageAspect((prev) => (prev[imageId] === nextAspect ? prev : { ...prev, [imageId]: nextAspect }));
+        aspectUpdateBufferRef.current[imageId] = nextAspect;
+        if (aspectUpdateRafRef.current !== null) return;
+        aspectUpdateRafRef.current = window.requestAnimationFrame(() => {
+            const pending = aspectUpdateBufferRef.current;
+            aspectUpdateBufferRef.current = {};
+            aspectUpdateRafRef.current = null;
+            const entries = Object.entries(pending);
+            if (entries.length === 0) return;
+            setImageAspect((prev) => {
+                let changed = false;
+                const next = { ...prev };
+                entries.forEach(([id, aspect]) => {
+                    if (next[id] === aspect) return;
+                    next[id] = aspect;
+                    changed = true;
+                });
+                return changed ? next : prev;
+            });
+        });
     };
 
     const handleSelectedImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
@@ -2720,6 +2793,7 @@ export const ProjectDataset = () => {
                             </div>
 
                             <div
+                                ref={classificationGridRef}
                                 className={clsx('image-grid', `image-grid-${thumbSize}`, 'flex-1 min-h-0')}
                                 style={
                                     {
@@ -2728,7 +2802,7 @@ export const ProjectDataset = () => {
                                     } as React.CSSProperties
                                 }
                             >
-                                {visibleImages.map((image, index) => (
+                                {renderedClassificationImages.map((image, index) => (
                                     <div
                                         key={image.id}
                                         onClick={(event) => {
@@ -2766,6 +2840,8 @@ export const ProjectDataset = () => {
                                             src={getImageSrc(image)}
                                             alt={image.id}
                                             className="thumb-image"
+                                            loading="lazy"
+                                            decoding="async"
                                             onLoad={(event) => handleThumbLoad(image.id, event)}
                                         />
                                         <div className="mt-2 text-xs text-secondary">
@@ -2792,6 +2868,15 @@ export const ProjectDataset = () => {
                                         ) : null}
                                     </div>
                                 ))}
+                                {canLoadMoreClassification && (
+                                    <div
+                                        ref={classificationSentinelRef}
+                                        className="col-span-full flex items-center justify-center rounded-lg border border-graphite-700/60 bg-graphite-900/50 px-3 py-2 text-[10px] uppercase tracking-[0.3em] text-secondary"
+                                    >
+                                        <Loader2 size={12} className="mr-2 animate-spin" />
+                                        Loading more thumbnails...
+                                    </div>
+                                )}
                             </div>
                         </Card>
                     )}
@@ -3297,10 +3382,11 @@ export const ProjectDataset = () => {
                                     </div>
 
                                     <div
+                                        ref={detectionGridRef}
                                         className="grid gap-2 max-h-[460px] overflow-y-auto pr-1"
                                         style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}
                                     >
-                                        {detectionVisibleImages.map((image, index) => (
+                                        {renderedDetectionImages.map((image, index) => (
                                             <button
                                                 key={image.id}
                                                 type="button"
@@ -3322,6 +3408,8 @@ export const ProjectDataset = () => {
                                                     src={getImageSrc(image)}
                                                     alt={image.id}
                                                     className="h-24 w-full object-cover bg-graphite-950/70"
+                                                    loading="lazy"
+                                                    decoding="async"
                                                 />
                                                 <div className="mt-2 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.26em] text-secondary">
                                                     <span className="truncate">{image.id}</span>
@@ -3329,6 +3417,15 @@ export const ProjectDataset = () => {
                                                 </div>
                                             </button>
                                         ))}
+                                        {canLoadMoreDetection && (
+                                            <div
+                                                ref={detectionSentinelRef}
+                                                className="col-span-2 flex items-center justify-center rounded-xl border border-graphite-700/70 bg-graphite-900/50 px-3 py-3 text-[10px] uppercase tracking-[0.3em] text-secondary"
+                                            >
+                                                <Loader2 size={12} className="mr-2 animate-spin" />
+                                                Loading more thumbnails...
+                                            </div>
+                                        )}
                                         {detectionVisibleImages.length === 0 && (
                                             <div className="col-span-2 rounded-xl border border-graphite-700/70 bg-graphite-900 px-3 py-6 text-center text-xs uppercase tracking-[0.3em] text-secondary">
                                                 No images in this tab.
