@@ -104,10 +104,14 @@ export const Dashboard = () => {
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load dashboard information.');
         } finally {
-            setLoading(false);
+            if (!background) {
+                setLoading(false);
+                // First dashboard load finished (success or error), release splash.
+                setDashboardReady(true);
+            }
             setRefreshing(false);
         }
-    }, []);
+    }, [setDashboardReady]);
 
     useEffect(() => {
         setDashboardReady(false);
@@ -117,14 +121,6 @@ export const Dashboard = () => {
         }, 30000);
         return () => window.clearInterval(timer);
     }, [loadDashboard, setDashboardReady]);
-
-    useEffect(() => {
-        if (loading) {
-            setDashboardReady(false);
-            return;
-        }
-        setDashboardReady(true);
-    }, [loading, setDashboardReady]);
 
     const primaryGpu = gpus[0] ?? gpu;
     const gpuName = primaryGpu?.name && primaryGpu.name !== 'N/A'
