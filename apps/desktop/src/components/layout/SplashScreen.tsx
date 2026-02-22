@@ -7,7 +7,7 @@ export const SplashScreen = () => {
     const isConnected = useEngineStore((state) => state.isConnected);
     const dashboardReady = useEngineStore((state) => state.dashboardReady);
     const requiresDashboardData = location.pathname === '/';
-    const splashReady = isConnected && (requiresDashboardData ? dashboardReady : true);
+    const splashReady = requiresDashboardData ? dashboardReady : isConnected;
     const [shouldRender, setShouldRender] = useState(!splashReady);
     const [isExiting, setIsExiting] = useState(false);
 
@@ -38,7 +38,7 @@ export const SplashScreen = () => {
                 <div className="splash-loader">
                     <span className="loader" />
                     <span className="splash-status">
-                        {isConnected && requiresDashboardData
+                        {requiresDashboardData
                             ? 'Loading dashboard data...'
                             : 'Waiting for backend...'}
                     </span>
