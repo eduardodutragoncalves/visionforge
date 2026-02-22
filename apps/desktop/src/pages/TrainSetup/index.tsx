@@ -71,6 +71,30 @@ interface ValidationSummary {
     last_tested_at: string | null;
 }
 
+interface DatasetVersionSummary {
+    id: string;
+    name: string;
+    task?: string;
+    source_count?: number;
+    selected_count?: number;
+    created_at?: string;
+    rules?: {
+        sample_size?: number | null;
+        balance_classes?: boolean;
+        orientation?: string;
+        resolution?: string;
+        seed?: number | null;
+    };
+    class_counts?: Array<{
+        class_id: number;
+        class_name?: string;
+        count: number;
+    }>;
+}
+
+type DatasetVersionOrientation = 'any' | 'landscape' | 'portrait' | 'square';
+type DatasetVersionResolution = 'any' | 'hd' | 'fhd' | 'qhd' | 'uhd';
+
 type NumericConfigField = 'epochs' | 'img_size' | 'batch_size';
 type HistoryStatusFilter = 'all' | 'running' | 'completed' | 'failed' | 'other';
 type HistoryValidationFilter = 'all' | 'validated' | 'not_validated';
@@ -185,6 +209,18 @@ export const TrainSetup = () => {
     const [splitTrainPct, setSplitTrainPct] = useState(80);
     const [splitValPct, setSplitValPct] = useState(20);
     const [splitTestPct, setSplitTestPct] = useState(0);
+    const [datasetVersions, setDatasetVersions] = useState<DatasetVersionSummary[]>([]);
+    const [datasetVersionsLoading, setDatasetVersionsLoading] = useState(false);
+    const [datasetVersionError, setDatasetVersionError] = useState<string | null>(null);
+    const [datasetVersionNotice, setDatasetVersionNotice] = useState<string | null>(null);
+    const [selectedDatasetVersionId, setSelectedDatasetVersionId] = useState('');
+    const [versionName, setVersionName] = useState('');
+    const [versionSampleSize, setVersionSampleSize] = useState('');
+    const [versionBalanceClasses, setVersionBalanceClasses] = useState(true);
+    const [versionOrientation, setVersionOrientation] = useState<DatasetVersionOrientation>('any');
+    const [versionResolution, setVersionResolution] = useState<DatasetVersionResolution>('any');
+    const [versionSeed, setVersionSeed] = useState('');
+    const [creatingDatasetVersion, setCreatingDatasetVersion] = useState(false);
     const datasetFormatForTraining = useMemo(
         () => resolveDatasetFormatByFramework(config.framework),
         [config.framework]
@@ -246,6 +282,49 @@ export const TrainSetup = () => {
         };
         loadDatasetTask();
     }, [projectId]);
+
+    const loadDatasetVersions = useCallback(async () => {
+        if (!projectId) return;
+        setDatasetVersionsLoading(true);
+        setDatasetVersionError(null);
+        try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/dataset/versions`);
+            if (!res.ok) {
+                const message = await res.text();
+                throw new Error(message || 'Failed to load dataset versions');
+            }
+            const payload = await res.json();
+            const versions: DatasetVersionSummary[] = Array.isArray(payload?.versions) ? payload.versions : [];
+            setDatasetVersions(versions);
+            setSelectedDatasetVersionId((current) => {
+                if (current && versions.some((version) => version.id === current)) return current;
+                return '';
+            });
+        } catch (error: any) {
+            setDatasetVersionError(error?.message || 'Failed to load dataset versions');
+            setDatasetVersions([]);
+            setSelectedDatasetVersionId('');
+        } finally {
+            setDatasetVersionsLoading(false);
+        }
+    }, [projectId]);
+
+    useEffect(() => {
+        if (!projectId) return;
+        if (datasetTask !== 'classification') {
+            setDatasetVersions([]);
+            setSelectedDatasetVersionId('');
+            setDatasetVersionError(null);
+            setDatasetVersionNotice(null);
+            return;
+        }
+        void loadDatasetVersions();
+    }, [datasetTask, loadDatasetVersions, projectId]);
+
+    const selectedDatasetVersion = useMemo(
+        () => datasetVersions.find((version) => version.id === selectedDatasetVersionId) || null,
+        [datasetVersions, selectedDatasetVersionId]
+    );
 
     const splitTotal = splitTrainPct + splitValPct + splitTestPct;
     const splitValid = splitTotal === 100;
@@ -513,6 +592,7 @@ export const TrainSetup = () => {
             target,
             runtime,
             dataset_format: datasetFormatForTraining,
+            dataset_version_id: selectedDatasetVersionId || undefined,
             gpu_devices: gpuDevices,
             gpu_mode: gpuSelection === 'dual' ? 'multi' : 'single',
             split_train: splitTrainPct,
