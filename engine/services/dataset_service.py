@@ -401,6 +401,48 @@ class DatasetService:
             manifests.save_manifest(paths.get_dataset_manifest_path(project_id), dataset, "dataset")
         return {"updated": updated}
 
+    def apply_classification_assignments(self, project_id: str, assignments: Dict[str, int]) -> Dict[str, Any]:
+        dataset = self._load_or_create_dataset(project_id)
+        images = dataset.get("images", [])
+        images_by_id = {str(image.get("id") or ""): image for image in images}
+        valid_class_ids = {int(cls.get("id")) for cls in (dataset.get("classes") or []) if "id" in cls}
+
+        updated_ids: List[str] = []
+        missing = 0
+        invalid_class = 0
+
+        for image_id, class_id in assignments.items():
+            key = str(image_id or "").strip()
+            image = images_by_id.get(key)
+            if not image:
+                missing += 1
+                continue
+            try:
+                normalized_class_id = int(class_id)
+            except Exception:
+                invalid_class += 1
+                continue
+            if normalized_class_id not in valid_class_ids:
+                invalid_class += 1
+                continue
+            next_labels = [normalized_class_id]
+            if image.get("labels") == next_labels:
+                updated_ids.append(key)
+                continue
+            image["labels"] = next_labels
+            updated_ids.append(key)
+
+        if updated_ids:
+            dataset["updated_at"] = _now()
+            manifests.save_manifest(paths.get_dataset_manifest_path(project_id), dataset, "dataset")
+
+        return {
+            "updated": len(updated_ids),
+            "updated_ids": updated_ids,
+            "missing": missing,
+            "invalid_class": invalid_class,
+        }
+
     def update_image_boxes(self, project_id: str, image_id: str, boxes: List[Dict[str, Any]]) -> Dict[str, Any]:
         dataset = self._load_or_create_dataset(project_id)
         images = dataset.get("images", [])

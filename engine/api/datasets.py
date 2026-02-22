@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 
 from engine.services.dataset_service import dataset_service
+from engine.services.dataset_autolabel_service import dataset_autolabel_service
 from engine.io import paths
 
 router = APIRouter()
@@ -84,6 +85,19 @@ class ClassificationAugmentationRequest(BaseModel):
     erasing_percent: float = 0.0
     auto_augment: Optional[str] = None
     force_color_jitter: bool = False
+
+
+class AutoLabelRunRequest(BaseModel):
+    variant_id: str
+    image_ids: List[str] = Field(default_factory=list)
+    only_unlabeled: bool = True
+    min_confidence: float = 0.0
+
+
+class AutoLabelApplyRequest(BaseModel):
+    variant_id: str
+    image_ids: List[str] = Field(default_factory=list)
+    action: Literal["accept", "reject", "clear"] = "accept"
 
 @router.get("/projects/{project_id}/dataset")
 async def get_dataset(project_id: str):
@@ -264,6 +278,68 @@ async def augment_classification_dataset(project_id: str, request: Classificatio
             project_id,
             request.image_ids,
             request.dict(exclude_none=True)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/projects/{project_id}/dataset/autolabel/classification/models")
+async def list_autolabel_classification_models(project_id: str):
+    try:
+        models = dataset_autolabel_service.list_classification_models(project_id)
+        return {"models": models}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/projects/{project_id}/dataset/autolabel/classification/run")
+async def run_autolabel_classification(project_id: str, request: AutoLabelRunRequest):
+    try:
+        return await dataset_autolabel_service.run_classification_suggestions(
+            project_id=project_id,
+            variant_id=request.variant_id,
+            image_ids=request.image_ids,
+            only_unlabeled=request.only_unlabeled,
+            min_confidence=request.min_confidence,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/projects/{project_id}/dataset/autolabel/classification/suggestions")
+async def list_autolabel_classification_suggestions(
+    project_id: str,
+    variant_id: str,
+    status: Optional[str] = "pending",
+    only_unlabeled: bool = True
+):
+    try:
+        suggestions = await dataset_autolabel_service.get_classification_suggestions_map(
+            project_id=project_id,
+            variant_id=variant_id,
+            status=status,
+            only_unlabeled=only_unlabeled,
+        )
+        return {
+            "project_id": project_id,
+            "variant_id": variant_id,
+            "status": status,
+            "only_unlabeled": only_unlabeled,
+            "count": len(suggestions),
+            "suggestions": suggestions,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/projects/{project_id}/dataset/autolabel/classification/apply")
+async def apply_autolabel_classification(project_id: str, request: AutoLabelApplyRequest):
+    try:
+        return await dataset_autolabel_service.apply_classification_suggestions(
+            project_id=project_id,
+            variant_id=request.variant_id,
+            image_ids=request.image_ids,
+            action=request.action,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
