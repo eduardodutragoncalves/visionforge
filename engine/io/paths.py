@@ -59,5 +59,8 @@ def get_variant_dir(project_id: str, variant_id: str) -> Path:
 def get_dataset_manifest_path(project_id: str) -> Path:
     return get_project_dir(project_id) / "dataset.json"
 
+def get_dataset_autolabel_manifest_path(project_id: str) -> Path:
+    return get_project_dir(project_id) / "dataset_autolabel.json"
+
 def ensure_dirs(path: Path):
     path.mkdir(parents=True, exist_ok=True)
