@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
 import { Copy, FolderOpen, Image, Film, Loader2, Plus, X, GripVertical, Sparkles } from 'lucide-react';
 import { Card } from '../components/ui/Card';
@@ -225,6 +225,13 @@ const getResolutionTier = (width?: number, height?: number) => {
     return 'SD';
 };
 
+const getSuggestionLabel = (suggestion?: AutoLabelSuggestion | null) => {
+    if (!suggestion) return '';
+    const suggestedName = String(suggestion.predicted_class_name || '').trim();
+    if (suggestedName) return suggestedName;
+    return `Class ${suggestion.predicted_class_id}`;
+};
+
 const getFileNameFromPath = (path: string) => {
     const parts = path.split(/[/\\]/);
     return parts[parts.length - 1] || path;
@@ -246,6 +253,7 @@ const formatElapsedSeconds = (seconds: number) => {
 };
 
 export const ProjectDataset = () => {
+    const navigate = useNavigate();
     const { projectId } = useParams();
     const [dataset, setDataset] = useState<Dataset | null>(null);
     const [images, setImages] = useState<DatasetImage[]>([]);
@@ -2937,6 +2945,18 @@ export const ProjectDataset = () => {
                                         Clear selected suggestions
                                     </Button>
                                 </div>
+                                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-graphite-700/70 bg-graphite-900/60 px-3 py-2 text-[11px] text-secondary">
+                                    <span>
+                                        Dataset versions (sampling, balancing, orientation, resolution) are configured in Training Setup.
+                                    </span>
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => navigate(`/projects/${projectId}/train/setup`)}
+                                    >
+                                        Open Training Setup
+                                    </Button>
+                                </div>
                             </div>
 
                             <div className="flex flex-wrap gap-2">
@@ -3173,7 +3193,13 @@ export const ProjectDataset = () => {
                                     } as React.CSSProperties
                                 }
                             >
-                                {renderedClassificationImages.map((image, index) => (
+                                {renderedClassificationImages.map((image, index) => {
+                                    const suggestion = classificationTab === 'unlabeled'
+                                        ? autoLabelSuggestionsByImage[image.id]
+                                        : null;
+                                    const suggestionLabel = getSuggestionLabel(suggestion);
+                                    const isSelected = selectedIds.has(image.id);
+                                    return (
                                     <div
                                         key={image.id}
                                         onClick={(event) => {
@@ -3196,8 +3222,8 @@ export const ProjectDataset = () => {
                                         className={clsx(
                                             'image-card relative',
                                             imageAspect[image.id] ? `image-card-${imageAspect[image.id]}` : null,
-                                            classificationTab === 'unlabeled' && autoLabelSuggestionsByImage[image.id] ? 'border-accent-primary/60' : null,
-                                            selectedIds.has(image.id) ? 'image-card-selected' : null
+                                            suggestion ? 'image-card-suggested' : null,
+                                            isSelected ? 'image-card-selected' : null
                                         )}
                                     >
                                         <div className="absolute left-2 top-2 rounded-full border border-graphite-700/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-secondary">
@@ -3208,9 +3234,19 @@ export const ProjectDataset = () => {
                                                 Aug
                                             </div>
                                         )}
-                                        {classificationTab === 'unlabeled' && autoLabelSuggestionsByImage[image.id] && (
-                                            <div className="absolute right-2 bottom-2 rounded-full border border-accent-success/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.25em] text-accent-success">
-                                                {autoLabelSuggestionsByImage[image.id].predicted_class_name || `Class ${autoLabelSuggestionsByImage[image.id].predicted_class_id}`} · {(autoLabelSuggestionsByImage[image.id].confidence * 100).toFixed(0)}%
+                                        {isSelected && (
+                                            <div className="absolute left-2 bottom-2 rounded-full border border-accent-primary/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.25em] text-accent-primary">
+                                                Selected
+                                            </div>
+                                        )}
+                                        {suggestion && (
+                                            <div className="absolute right-2 bottom-2 flex max-w-[calc(100%-16px)] items-center gap-1 rounded-full border border-accent-success/70 bg-graphite-900 px-1.5 py-0.5 text-[10px] text-accent-success">
+                                                <span className="max-w-[96px] truncate uppercase tracking-[0.18em]" title={suggestionLabel}>
+                                                    {suggestionLabel}
+                                                </span>
+                                                <span className="rounded-full border border-accent-success/60 px-1 py-[1px] uppercase tracking-[0.16em] tabular-nums">
+                                                    {(suggestion.confidence * 100).toFixed(0)}%
+                                                </span>
                                             </div>
                                         )}
                                         <img
@@ -3226,9 +3262,12 @@ export const ProjectDataset = () => {
                                                 ? image.labels.map((id) => classMap.get(id) || id).join(', ')
                                                 : 'Unlabeled'}
                                         </div>
-                                        {classificationTab === 'unlabeled' && autoLabelSuggestionsByImage[image.id] && (
-                                            <div className="mt-1 text-[10px] uppercase tracking-[0.24em] text-accent-success">
-                                                Suggested {autoLabelSuggestionsByImage[image.id].predicted_class_name || `Class ${autoLabelSuggestionsByImage[image.id].predicted_class_id}`}
+                                        {suggestion && (
+                                            <div className="mt-1 flex min-w-0 items-center gap-1 text-[10px] text-accent-success">
+                                                <span className="uppercase tracking-[0.24em] text-accent-success/85">Suggested</span>
+                                                <span className="truncate uppercase tracking-[0.18em]" title={suggestionLabel}>
+                                                    {suggestionLabel}
+                                                </span>
                                             </div>
                                         )}
                                         {PRECLASSIFY_ENABLED && preclassifyResults[image.id]?.length ? (
@@ -3249,7 +3288,8 @@ export const ProjectDataset = () => {
                                             </div>
                                         ) : null}
                                     </div>
-                                ))}
+                                );
+                                })}
                                 {canLoadMoreClassification && (
                                     <div
                                         ref={classificationSentinelRef}
