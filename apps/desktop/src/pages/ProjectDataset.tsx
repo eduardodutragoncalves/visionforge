@@ -92,6 +92,37 @@ interface ClassificationAugmentationProgress {
     added: number;
 }
 
+interface AutoLabelModelOption {
+    id: string;
+    name: string;
+    base_model?: string;
+    run_id?: string;
+    created_at?: string;
+}
+
+interface AutoLabelSuggestion {
+    image_id: string;
+    variant_id: string;
+    run_id?: string;
+    predicted_class_id: number;
+    predicted_class_name?: string;
+    confidence: number;
+    status: 'pending' | 'accepted' | 'rejected';
+    created_at?: string;
+    updated_at?: string;
+}
+
+interface AutoLabelProgressState {
+    status: 'idle' | 'starting' | 'running' | 'completed' | 'error';
+    processed: number;
+    total: number;
+    progress: number;
+    message: string;
+    suggested?: number;
+    removed?: number;
+    errors?: number;
+}
+
 interface DuplicateImageEntry {
     id?: string | null;
     path: string;
@@ -261,6 +292,21 @@ export const ProjectDataset = () => {
     const [preclassifyTopK, setPreclassifyTopK] = useState(3);
     const [preclassifyError, setPreclassifyError] = useState<string | null>(null);
     const [preclassifyResults, setPreclassifyResults] = useState<Record<string, PreclassifyPrediction[]>>({});
+    const [autoLabelModels, setAutoLabelModels] = useState<AutoLabelModelOption[]>([]);
+    const [autoLabelModelId, setAutoLabelModelId] = useState('');
+    const [autoLabelSuggestionsByImage, setAutoLabelSuggestionsByImage] = useState<Record<string, AutoLabelSuggestion>>({});
+    const [autoLabelLoadingModels, setAutoLabelLoadingModels] = useState(false);
+    const [autoLabelRunning, setAutoLabelRunning] = useState(false);
+    const [autoLabelMinConfidence, setAutoLabelMinConfidence] = useState(0.7);
+    const [autoLabelError, setAutoLabelError] = useState<string | null>(null);
+    const [autoLabelNotice, setAutoLabelNotice] = useState<string | null>(null);
+    const [autoLabelProgress, setAutoLabelProgress] = useState<AutoLabelProgressState>({
+        status: 'idle',
+        processed: 0,
+        total: 0,
+        progress: 0,
+        message: ''
+    });
     const [isAugmentationModalOpen, setIsAugmentationModalOpen] = useState(false);
     const [isAugmenting, setIsAugmenting] = useState(false);
     const [augmentationError, setAugmentationError] = useState<string | null>(null);
@@ -454,6 +500,20 @@ export const ProjectDataset = () => {
         return labeledImagesByAugmentedFilter.filter((image) => image.labels.includes(labeledClassFilter));
     }, [labeledImagesByAugmentedFilter, labeledClassFilter]);
     const visibleImages = classificationTab === 'labeled' ? filteredLabeledImages : filteredUnlabeledImages;
+    const pendingSuggestionIds = useMemo(
+        () => Object.keys(autoLabelSuggestionsByImage),
+        [autoLabelSuggestionsByImage]
+    );
+    const pendingSuggestionCount = pendingSuggestionIds.length;
+    const selectedSuggestionIds = useMemo(
+        () => Array.from(selectedIds).filter((id) => Boolean(autoLabelSuggestionsByImage[id])),
+        [selectedIds, autoLabelSuggestionsByImage]
+    );
+    const selectedSuggestionCount = selectedSuggestionIds.length;
+    const autoLabelModelOptions = useMemo(
+        () => autoLabelModels.map((model) => ({ value: model.id, label: model.name || model.id })),
+        [autoLabelModels]
+    );
     const renderedClassificationImages = useMemo(
         () => visibleImages.slice(0, classificationRenderCount),
         [visibleImages, classificationRenderCount]

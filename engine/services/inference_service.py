@@ -1,6 +1,7 @@
 import time
 import io
 import logging
+import threading
 from pathlib import Path
 from PIL import Image, ImageOps
 
@@ -21,6 +22,7 @@ class InferenceService:
     def __init__(self):
         self._loaded_model = None
         self._loaded_variant_path = None
+        self._infer_lock = threading.Lock()
 
     def _normalize_model_task(self, model) -> None:
         raw_task = str(getattr(model, "task", "") or "").strip().lower()
@@ -94,75 +96,76 @@ class InferenceService:
         iou_threshold=0.45,
         agnostic_nms=False
     ):
-        # Check cache
-        if self._loaded_variant_path != str(variant_path):
-            self.load_model(variant_path)
-        else:
-            # Keep compatibility in case model.task was mutated externally.
-            self._normalize_model_task(self._loaded_model)
-            
-        # Run inference
-        try:
-            image = Image.open(io.BytesIO(image_bytes))
-            # Keep inference orientation consistent with what users see in the browser.
-            image = ImageOps.exif_transpose(image).convert("RGB")
-        except Exception:
-            raise ValueError("Invalid image data")
-        
-        start_time = time.time()
-        # Ultralytics inference
-        results = self._loaded_model(
-            image,
-            conf=float(conf_threshold),
-            iou=float(iou_threshold),
-            agnostic_nms=bool(agnostic_nms),
-            verbose=False
-        )[0]
-        end_time = time.time()
-        
-        latency_ms = (end_time - start_time) * 1000
-        
-        predictions = []
-        task = "detect"
-        if getattr(results, "probs", None) is not None:
-            task = "classify"
-            probs = results.probs
-            if hasattr(probs, "top5") and hasattr(probs, "top5conf"):
-                for cls_id, conf in zip(probs.top5, probs.top5conf):
-                    predictions.append({
-                        "confidence": float(conf),
-                        "class_id": int(cls_id),
-                        "class_name": results.names[int(cls_id)]
-                    })
+        with self._infer_lock:
+            # Check cache
+            if self._loaded_variant_path != str(variant_path):
+                self.load_model(variant_path)
             else:
-                data = getattr(probs, "data", probs)
-                values = data.tolist() if hasattr(data, "tolist") else list(data)
-                ranked = sorted(enumerate(values), key=lambda x: x[1], reverse=True)[:5]
-                for cls_id, conf in ranked:
+                # Keep compatibility in case model.task was mutated externally.
+                self._normalize_model_task(self._loaded_model)
+
+            # Run inference
+            try:
+                image = Image.open(io.BytesIO(image_bytes))
+                # Keep inference orientation consistent with what users see in the browser.
+                image = ImageOps.exif_transpose(image).convert("RGB")
+            except Exception:
+                raise ValueError("Invalid image data")
+
+            start_time = time.time()
+            # Ultralytics inference
+            results = self._loaded_model(
+                image,
+                conf=float(conf_threshold),
+                iou=float(iou_threshold),
+                agnostic_nms=bool(agnostic_nms),
+                verbose=False
+            )[0]
+            end_time = time.time()
+
+            latency_ms = (end_time - start_time) * 1000
+
+            predictions = []
+            task = "detect"
+            if getattr(results, "probs", None) is not None:
+                task = "classify"
+                probs = results.probs
+                if hasattr(probs, "top5") and hasattr(probs, "top5conf"):
+                    for cls_id, conf in zip(probs.top5, probs.top5conf):
+                        predictions.append({
+                            "confidence": float(conf),
+                            "class_id": int(cls_id),
+                            "class_name": results.names[int(cls_id)]
+                        })
+                else:
+                    data = getattr(probs, "data", probs)
+                    values = data.tolist() if hasattr(data, "tolist") else list(data)
+                    ranked = sorted(enumerate(values), key=lambda x: x[1], reverse=True)[:5]
+                    for cls_id, conf in ranked:
+                        predictions.append({
+                            "confidence": float(conf),
+                            "class_id": int(cls_id),
+                            "class_name": results.names[int(cls_id)]
+                        })
+            else:
+                # results.boxes is a Boxes object
+                for box in results.boxes:
+                    # xyxy format: x1, y1, x2, y2
+                    b = box.xyxy[0].tolist()
                     predictions.append({
-                        "confidence": float(conf),
-                        "class_id": int(cls_id),
-                        "class_name": results.names[int(cls_id)]
+                        "box": b,
+                        "confidence": float(box.conf),
+                        "class_id": int(box.cls),
+                        "class_name": results.names[int(box.cls)]
                     })
-        else:
-            # results.boxes is a Boxes object
-            for box in results.boxes:
-                # xyxy format: x1, y1, x2, y2
-                b = box.xyxy[0].tolist()
-                predictions.append({
-                    "box": b,
-                    "confidence": float(box.conf),
-                    "class_id": int(box.cls),
-                    "class_name": results.names[int(box.cls)]
-                })
-            predictions = self._dedupe_predictions(predictions, iou_threshold=0.85)
-            
-        return {
-            "task": task,
-            "predictions": predictions,
-            "latency_ms": latency_ms,
-            "fps_est": 1000 / latency_ms if latency_ms > 0 else 0,
-            "model_path": str(variant_path)
-        }
+                predictions = self._dedupe_predictions(predictions, iou_threshold=0.85)
+
+            return {
+                "task": task,
+                "predictions": predictions,
+                "latency_ms": latency_ms,
+                "fps_est": 1000 / latency_ms if latency_ms > 0 else 0,
+                "model_path": str(variant_path)
+            }
 
 inference_service = InferenceService()
