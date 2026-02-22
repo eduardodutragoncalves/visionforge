@@ -95,7 +95,7 @@ interface DatasetVersionSummary {
 type DatasetVersionOrientation = 'any' | 'landscape' | 'portrait' | 'square';
 type DatasetVersionResolution = 'any' | 'hd' | 'fhd' | 'qhd' | 'uhd';
 
-type NumericConfigField = 'epochs' | 'img_size' | 'batch_size';
+type NumericConfigField = 'epochs' | 'img_size';
 type HistoryStatusFilter = 'all' | 'running' | 'completed' | 'failed' | 'other';
 type HistoryValidationFilter = 'all' | 'validated' | 'not_validated';
 type HistoryOnnxFilter = 'all' | 'onnx' | 'without_onnx';
@@ -169,6 +169,17 @@ const parseIntegerInput = (value: string) => {
 
 const clampPercentage = (value: number) => Math.max(0, Math.min(100, value));
 
+const BATCH_SIZE_MIN = 16;
+const BATCH_SIZE_MAX = 2048;
+const BATCH_SIZE_STEP = 16;
+
+const normalizeBatchSize = (value: unknown) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return BATCH_SIZE_MIN;
+    const clamped = Math.max(BATCH_SIZE_MIN, Math.min(BATCH_SIZE_MAX, Math.round(parsed)));
+    return Math.round(clamped / BATCH_SIZE_STEP) * BATCH_SIZE_STEP;
+};
+
 export const TrainSetup = () => {
     const { projectId } = useParams();
     const navigate = useNavigate();
@@ -184,7 +195,7 @@ export const TrainSetup = () => {
     const [loading, setLoading] = useState(false);
     const [config, setConfig] = useState({
         epochs: 50,
-        batch_size: 16,
+        batch_size: BATCH_SIZE_MIN,
         base_model: 'yolov8n.pt',
         framework: 'ultralytics',
         img_size: 640
@@ -472,7 +483,7 @@ export const TrainSetup = () => {
         setConfig((prev) => ({
             ...prev,
             epochs: cfg.epochs ?? prev.epochs,
-            batch_size: cfg.batch_size ?? cfg.batch ?? prev.batch_size,
+            batch_size: normalizeBatchSize(cfg.batch_size ?? cfg.batch ?? prev.batch_size),
             base_model: cfg.base_model ?? prev.base_model,
             framework: cfg.framework ?? prev.framework,
             img_size: cfg.img_size ?? prev.img_size
@@ -656,6 +667,7 @@ export const TrainSetup = () => {
         setLoading(true);
         const runConfig = {
             ...config,
+            batch_size: normalizeBatchSize(config.batch_size),
             target,
             runtime,
             dataset_format: datasetFormatForTraining,
@@ -1043,13 +1055,31 @@ export const TrainSetup = () => {
                             </div>
                         </div>
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            <Input
-                                label="Batch Size"
-                                type="number"
-                                min={1}
-                                value={config.batch_size}
-                                onChange={e => handleConfigNumberChange('batch_size', e.target.value, 1)}
-                            />
+                            <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-graphite-700/70 bg-graphite-900 px-3 py-3">
+                                <div className="mb-2 flex items-center justify-between">
+                                    <label className="text-sm text-secondary">Batch Size</label>
+                                    <span className="rounded-full border border-accent-primary/45 bg-accent-primary/10 px-2 py-0.5 text-xs font-semibold text-bone">
+                                        {config.batch_size}
+                                    </span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min={BATCH_SIZE_MIN}
+                                    max={BATCH_SIZE_MAX}
+                                    step={BATCH_SIZE_STEP}
+                                    value={normalizeBatchSize(config.batch_size)}
+                                    onChange={(e) => {
+                                        const nextValue = normalizeBatchSize(e.target.value);
+                                        setConfig((prev) => ({ ...prev, batch_size: nextValue }));
+                                    }}
+                                    className="w-full accent-accent-primary"
+                                />
+                                <div className="mt-1 flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-secondary">
+                                    <span>{BATCH_SIZE_MIN}</span>
+                                    <span>Step {BATCH_SIZE_STEP}</span>
+                                    <span>{BATCH_SIZE_MAX}</span>
+                                </div>
+                            </div>
                             <Select
                                 label="Execution Target"
                                 options={[
