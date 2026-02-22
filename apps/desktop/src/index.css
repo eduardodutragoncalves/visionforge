@@ -670,10 +670,11 @@
   }
 
   .preview-nav-button {
-    @apply absolute inline-flex h-11 w-11 items-center justify-center border border-graphite-700/70 bg-graphite-900/92 text-bone transition;
+    @apply absolute inline-flex h-11 w-11 items-center justify-center border border-graphite-700/70 bg-graphite-900 text-bone transition;
     top: 50%;
     transform: translateY(-50%);
     border-radius: 999px;
+    background-color: rgba(12, 20, 26, 0.92);
     box-shadow: 0 8px 18px rgba(6, 12, 18, 0.62);
   }
 

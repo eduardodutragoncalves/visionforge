@@ -59,11 +59,12 @@ const classifyRunStatus = (status?: string) => {
 
 export const Dashboard = () => {
     const navigate = useNavigate();
-    const { isConnected, status, gpu, gpus } = useEngineStore((state) => ({
+    const { isConnected, status, gpu, gpus, setDashboardReady } = useEngineStore((state) => ({
         isConnected: state.isConnected,
         status: state.status,
         gpu: state.gpu,
-        gpus: state.gpus
+        gpus: state.gpus,
+        setDashboardReady: state.setDashboardReady
     }));
     const trainingRuns = useTrainingStore((state) => Object.values(state.runs));
 
@@ -109,12 +110,21 @@ export const Dashboard = () => {
     }, []);
 
     useEffect(() => {
+        setDashboardReady(false);
         loadDashboard(false);
         const timer = window.setInterval(() => {
             loadDashboard(true);
         }, 30000);
         return () => window.clearInterval(timer);
-    }, [loadDashboard]);
+    }, [loadDashboard, setDashboardReady]);
+
+    useEffect(() => {
+        if (loading) {
+            setDashboardReady(false);
+            return;
+        }
+        setDashboardReady(true);
+    }, [loading, setDashboardReady]);
 
     const primaryGpu = gpus[0] ?? gpu;
     const gpuName = primaryGpu?.name && primaryGpu.name !== 'N/A'

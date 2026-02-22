@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useEngineStore } from '../../store/engineStore';
 
 export const SplashScreen = () => {
+    const location = useLocation();
     const isConnected = useEngineStore((state) => state.isConnected);
-    const [shouldRender, setShouldRender] = useState(!isConnected);
+    const dashboardReady = useEngineStore((state) => state.dashboardReady);
+    const requiresDashboardData = location.pathname === '/';
+    const splashReady = isConnected && (requiresDashboardData ? dashboardReady : true);
+    const [shouldRender, setShouldRender] = useState(!splashReady);
     const [isExiting, setIsExiting] = useState(false);
 
     useEffect(() => {
-        if (!isConnected) {
+        if (!splashReady) {
             setShouldRender(true);
             setIsExiting(false);
             return;
@@ -19,7 +24,7 @@ export const SplashScreen = () => {
         }, 280);
 
         return () => window.clearTimeout(timer);
-    }, [isConnected]);
+    }, [splashReady]);
 
     if (!shouldRender) return null;
 
@@ -32,7 +37,11 @@ export const SplashScreen = () => {
                 <div className="splash-inline-title">Connecting to engine</div>
                 <div className="splash-loader">
                     <span className="loader" />
-                    <span className="splash-status">Waiting for backend...</span>
+                    <span className="splash-status">
+                        {isConnected && requiresDashboardData
+                            ? 'Loading dashboard data...'
+                            : 'Waiting for backend...'}
+                    </span>
                 </div>
                 <div className="splash-progress" aria-hidden="true" />
             </div>

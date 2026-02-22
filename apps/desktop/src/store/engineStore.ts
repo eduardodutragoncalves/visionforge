@@ -20,10 +20,12 @@ interface EngineState {
     gpu: GpuState;
     gpus: GpuState[];
     gpuTimeline: GpuTimelineEntry[];
+    dashboardReady: boolean;
 
     setConnected: (connected: boolean) => void;
     setGpuStats: (gpus: GpuState[], timestamp: number) => void;
     setEngineStatus: (status: EngineState['status']) => void;
+    setDashboardReady: (ready: boolean) => void;
 }
 
 export const useEngineStore = create<EngineState>((set) => ({
@@ -39,9 +41,16 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     gpus: [],
     gpuTimeline: [],
+    dashboardReady: false,
 
-    setConnected: (connected) => set({ isConnected: connected, status: connected ? 'idle' : 'offline' }),
+    setConnected: (connected) =>
+        set((state) => ({
+            isConnected: connected,
+            status: connected ? 'idle' : 'offline',
+            dashboardReady: connected ? state.dashboardReady : false
+        })),
     setEngineStatus: (status) => set({ status }),
+    setDashboardReady: (ready) => set({ dashboardReady: ready }),
     setGpuStats: (gpus, timestamp) =>
         set((state) => {
             const entry: GpuTimelineEntry = { timestamp, gpus };
