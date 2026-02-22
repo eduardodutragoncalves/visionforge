@@ -670,20 +670,21 @@
   }
 
   .preview-nav-button {
-    @apply absolute inline-flex h-11 w-11 items-center justify-center border border-graphite-700/70 bg-graphite-900 text-bone transition;
+    @apply fixed inline-flex h-12 w-12 items-center justify-center border border-graphite-700/70 bg-graphite-900 text-bone transition;
     top: 50%;
     transform: translateY(-50%);
     border-radius: 999px;
+    z-index: 70;
     background-color: rgba(12, 20, 26, 0.92);
     box-shadow: 0 8px 18px rgba(6, 12, 18, 0.62);
   }
 
   .preview-nav-prev {
-    left: 8px;
+    left: clamp(20px, 3vw, 56px);
   }
 
   .preview-nav-next {
-    right: 8px;
+    right: clamp(20px, 3vw, 56px);
   }
 
   .preview-nav-button:hover:not(:disabled) {

@@ -172,6 +172,19 @@ const isEditableTarget = (target: EventTarget | null) => {
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 };
 
+const getShortcutDigit = (event: KeyboardEvent): number | null => {
+    const code = String(event.code || '');
+    const codeMatch = code.match(/^(Digit|Numpad)([1-9])$/);
+    if (codeMatch) {
+        return Number(codeMatch[2]);
+    }
+    const key = String(event.key || '').trim();
+    if (/^[1-9]$/.test(key)) {
+        return Number(key);
+    }
+    return null;
+};
+
 const labelsEqual = (a: number[], b: number[]) =>
     a.length === b.length && a.every((value, index) => value === b[index]);
 
@@ -2488,10 +2501,10 @@ export const ProjectDataset = () => {
     useEffect(() => {
         if (dataset?.task !== 'classification' || classes.length === 0) return;
         const handleShortcut = (event: KeyboardEvent) => {
-            if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+            if (event.metaKey || event.ctrlKey || event.altKey) return;
             if (isEditableTarget(event.target)) return;
-            const digit = Number(event.key);
-            if (!Number.isInteger(digit) || digit < 1 || digit > 9) return;
+            const digit = getShortcutDigit(event);
+            if (!digit) return;
             const targetClass = classes[digit - 1];
             if (!targetClass) return;
             if (previewImageId) {
@@ -2573,10 +2586,10 @@ export const ProjectDataset = () => {
     useEffect(() => {
         if (dataset?.task !== 'detection' || classes.length === 0) return;
         const handleDetectionClassShortcut = (event: KeyboardEvent) => {
-            if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+            if (event.metaKey || event.ctrlKey || event.altKey) return;
             if (isEditableTarget(event.target)) return;
-            const digit = Number(event.key);
-            if (!Number.isInteger(digit) || digit < 1 || digit > 9) return;
+            const digit = getShortcutDigit(event);
+            if (!digit) return;
             const targetClass = classes[digit - 1];
             if (!targetClass) return;
             event.preventDefault();
