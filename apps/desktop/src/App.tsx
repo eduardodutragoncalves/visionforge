@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppShell } from './components/layout/AppShell'
 import { Dashboard } from './pages/Dashboard'
@@ -10,9 +11,16 @@ import { TrainSetup } from './pages/TrainSetup'
 import { ProjectModels } from './pages/ProjectModels'
 import { ProjectTest } from './pages/ProjectTest'
 import { useEngineConnection } from './hooks/useEngineConnection'
+import { useEngineStore } from './store/engineStore'
 
 function App() {
     useEngineConnection();
+    const setDashboardReady = useEngineStore((state) => state.setDashboardReady);
+
+    useEffect(() => {
+        // Ensure splash can render on startup/hot reload before dashboard data is fetched.
+        setDashboardReady(false);
+    }, [setDashboardReady]);
 
     return (
         <Routes>
