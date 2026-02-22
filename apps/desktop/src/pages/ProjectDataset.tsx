@@ -2847,6 +2847,97 @@ export const ProjectDataset = () => {
                             {PRECLASSIFY_ENABLED && preclassifyError && (
                                 <div className="text-xs text-error">{preclassifyError}</div>
                             )}
+                            {autoLabelError && (
+                                <div className="text-xs text-error">{autoLabelError}</div>
+                            )}
+                            {autoLabelNotice && (
+                                <div className="text-xs text-accent-success">{autoLabelNotice}</div>
+                            )}
+
+                            <div className="rounded-xl border border-graphite-700/70 bg-graphite-900/50 p-3">
+                                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                                    <div className="flex-1 grid gap-3 md:grid-cols-3">
+                                        <Select
+                                            label="Auto-label model"
+                                            options={autoLabelModelOptions.length > 0
+                                                ? autoLabelModelOptions
+                                                : [{ value: '', label: autoLabelLoadingModels ? 'Loading models...' : 'No trained classification model' }]}
+                                            value={autoLabelModelId}
+                                            onChange={(e) => setAutoLabelModelId(e.target.value)}
+                                            disabled={autoLabelLoadingModels || autoLabelModels.length === 0}
+                                        />
+                                        <Input
+                                            label="Min confidence (0-1)"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            max="1"
+                                            value={autoLabelMinConfidence}
+                                            onChange={(e) => {
+                                                const parsed = Number(e.target.value);
+                                                if (!Number.isFinite(parsed)) return;
+                                                setAutoLabelMinConfidence(Math.max(0, Math.min(1, parsed)));
+                                            }}
+                                            disabled={autoLabelModels.length === 0 || autoLabelRunning}
+                                        />
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={runAutoLabelClassification}
+                                                disabled={autoLabelModels.length === 0 || !autoLabelModelId || autoLabelRunning}
+                                            >
+                                                {autoLabelRunning ? 'Classifying...' : 'Classify unlabeled images'}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <div className="text-[11px] uppercase tracking-[0.28em] text-secondary">
+                                        Suggestions: {pendingSuggestionCount} · Selected: {selectedSuggestionCount}
+                                    </div>
+                                </div>
+
+                                {(autoLabelRunning || autoLabelProgress.status === 'running' || autoLabelProgress.status === 'starting') && (
+                                    <div className="mt-3 space-y-2 rounded-lg border border-graphite-700/70 bg-graphite-900/70 px-3 py-2">
+                                        <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.3em] text-secondary">
+                                            <span>{autoLabelProgress.message || 'Auto-classification in progress...'}</span>
+                                            <span>{autoLabelProgress.processed}/{autoLabelProgress.total || 0}</span>
+                                        </div>
+                                        <div className="h-2 rounded-full bg-graphite-700/80 overflow-hidden">
+                                            <div
+                                                className="h-full bg-accent-primary transition-all duration-300"
+                                                style={{ width: `${Math.max(0, Math.min(100, autoLabelProgress.progress || 0))}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    <Button
+                                        size="sm"
+                                        variant="primary"
+                                        onClick={() => handleApplyAutoLabelAction('accept')}
+                                        disabled={selectedSuggestionCount === 0}
+                                    >
+                                        Accept selected suggestions
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => handleApplyAutoLabelAction('reject')}
+                                        disabled={selectedSuggestionCount === 0}
+                                    >
+                                        Reject selected suggestions
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleApplyAutoLabelAction('clear')}
+                                        disabled={selectedSuggestionCount === 0}
+                                    >
+                                        Clear selected suggestions
+                                    </Button>
+                                </div>
+                            </div>
 
                             <div className="flex flex-wrap gap-2">
                                 {classes.map((cls, index) => (
@@ -3105,6 +3196,7 @@ export const ProjectDataset = () => {
                                         className={clsx(
                                             'image-card relative',
                                             imageAspect[image.id] ? `image-card-${imageAspect[image.id]}` : null,
+                                            classificationTab === 'unlabeled' && autoLabelSuggestionsByImage[image.id] ? 'border-accent-primary/60' : null,
                                             selectedIds.has(image.id) ? 'image-card-selected' : null
                                         )}
                                     >
@@ -3114,6 +3206,11 @@ export const ProjectDataset = () => {
                                         {image.is_augmented && (
                                             <div className="absolute right-2 top-2 rounded-full border border-accent-primary/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-accent-primary">
                                                 Aug
+                                            </div>
+                                        )}
+                                        {classificationTab === 'unlabeled' && autoLabelSuggestionsByImage[image.id] && (
+                                            <div className="absolute right-2 bottom-2 rounded-full border border-accent-success/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.25em] text-accent-success">
+                                                {autoLabelSuggestionsByImage[image.id].predicted_class_name || `Class ${autoLabelSuggestionsByImage[image.id].predicted_class_id}`} · {(autoLabelSuggestionsByImage[image.id].confidence * 100).toFixed(0)}%
                                             </div>
                                         )}
                                         <img
@@ -3129,6 +3226,11 @@ export const ProjectDataset = () => {
                                                 ? image.labels.map((id) => classMap.get(id) || id).join(', ')
                                                 : 'Unlabeled'}
                                         </div>
+                                        {classificationTab === 'unlabeled' && autoLabelSuggestionsByImage[image.id] && (
+                                            <div className="mt-1 text-[10px] uppercase tracking-[0.24em] text-accent-success">
+                                                Suggested {autoLabelSuggestionsByImage[image.id].predicted_class_name || `Class ${autoLabelSuggestionsByImage[image.id].predicted_class_id}`}
+                                            </div>
+                                        )}
                                         {PRECLASSIFY_ENABLED && preclassifyResults[image.id]?.length ? (
                                             <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.3em] text-secondary">
                                                 {preclassifyResults[image.id].map((prediction) => (
