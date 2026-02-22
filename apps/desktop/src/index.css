@@ -594,7 +594,7 @@
   }
 
   .splash-overlay {
-    @apply fixed inset-0 z-[80] flex items-center justify-center bg-graphite-950/88;
+    @apply fixed inset-0 z-[80] flex items-center justify-center bg-graphite-950/90;
     transition: opacity 0.28s ease, transform 0.28s ease;
     backdrop-filter: blur(3px);
   }
