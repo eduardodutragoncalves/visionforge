@@ -1003,6 +1003,160 @@ export const ProjectDataset = () => {
         }
     };
 
+    const fetchAutoLabelModels = useCallback(async () => {
+        if (!projectId) return;
+        setAutoLabelLoadingModels(true);
+        setAutoLabelError(null);
+        try {
+            const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/autolabel/classification/models`);
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || 'Failed to load classification models');
+            }
+            const payload = await res.json();
+            const models: AutoLabelModelOption[] = Array.isArray(payload?.models) ? payload.models : [];
+            setAutoLabelModels(models);
+            setAutoLabelModelId((current) => {
+                if (current && models.some((model) => model.id === current)) return current;
+                return models[0]?.id || '';
+            });
+            if (models.length === 0) {
+                setAutoLabelSuggestionsByImage({});
+            }
+        } catch (error: any) {
+            setAutoLabelError(error?.message || 'Failed to load classification models');
+            setAutoLabelModels([]);
+            setAutoLabelModelId('');
+            setAutoLabelSuggestionsByImage({});
+        } finally {
+            setAutoLabelLoadingModels(false);
+        }
+    }, [projectId]);
+
+    const fetchAutoLabelSuggestions = useCallback(async (variantId?: string) => {
+        if (!projectId) return;
+        const resolvedVariantId = (variantId || autoLabelModelId || '').trim();
+        if (!resolvedVariantId) {
+            setAutoLabelSuggestionsByImage({});
+            return;
+        }
+        try {
+            const qs = new URLSearchParams({
+                variant_id: resolvedVariantId,
+                status: 'pending',
+                only_unlabeled: 'true'
+            });
+            const res = await fetch(
+                `${API_BASE_URL}/projects/${projectId}/dataset/autolabel/classification/suggestions?${qs.toString()}`
+            );
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || 'Failed to load auto-label suggestions');
+            }
+            const payload = await res.json();
+            const suggestions = payload?.suggestions && typeof payload.suggestions === 'object'
+                ? payload.suggestions as Record<string, AutoLabelSuggestion>
+                : {};
+            setAutoLabelSuggestionsByImage(suggestions);
+        } catch (error: any) {
+            setAutoLabelError(error?.message || 'Failed to load auto-label suggestions');
+            setAutoLabelSuggestionsByImage({});
+        }
+    }, [autoLabelModelId, projectId]);
+
+    const runAutoLabelClassification = useCallback(async () => {
+        if (!projectId || !autoLabelModelId) return;
+        const selectedUnlabeledIds = Array.from(selectedIds).filter((imageId) => {
+            const image = images.find((item) => item.id === imageId);
+            return Boolean(image) && (image?.labels?.length || 0) === 0;
+        });
+        const targetIds = selectedUnlabeledIds.length > 0
+            ? selectedUnlabeledIds
+            : images.filter((image) => (image.labels?.length || 0) === 0).map((image) => image.id);
+        if (targetIds.length === 0) {
+            setAutoLabelNotice('No unlabeled images available for auto-classification.');
+            return;
+        }
+        setAutoLabelRunning(true);
+        setAutoLabelError(null);
+        setAutoLabelNotice(null);
+        setAutoLabelProgress({
+            status: 'starting',
+            processed: 0,
+            total: targetIds.length,
+            progress: 0,
+            message: 'Starting auto-classification...'
+        });
+        try {
+            const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/autolabel/classification/run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    variant_id: autoLabelModelId,
+                    image_ids: targetIds,
+                    only_unlabeled: true,
+                    min_confidence: Math.max(0, Math.min(1, autoLabelMinConfidence))
+                })
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || 'Auto-classification failed');
+            }
+            const payload = await res.json();
+            setAutoLabelNotice(
+                `Auto-classification completed: ${payload?.suggested ?? 0} suggestion(s), ${payload?.errors ?? 0} error(s).`
+            );
+            await fetchAutoLabelSuggestions(autoLabelModelId);
+        } catch (error: any) {
+            setAutoLabelError(error?.message || 'Auto-classification failed');
+            setAutoLabelProgress((prev) => ({
+                ...prev,
+                status: 'error',
+                message: error?.message || 'Auto-classification failed'
+            }));
+        } finally {
+            setAutoLabelRunning(false);
+        }
+    }, [autoLabelMinConfidence, autoLabelModelId, fetchAutoLabelSuggestions, images, projectId, selectedIds]);
+
+    const handleApplyAutoLabelAction = useCallback(async (action: 'accept' | 'reject' | 'clear') => {
+        if (!projectId || !autoLabelModelId) return;
+        if (selectedSuggestionIds.length === 0) {
+            setAutoLabelNotice('Select images with suggestions before applying this action.');
+            return;
+        }
+        setAutoLabelError(null);
+        try {
+            const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/autolabel/classification/apply`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    variant_id: autoLabelModelId,
+                    image_ids: selectedSuggestionIds,
+                    action
+                })
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || 'Failed to apply auto-label action');
+            }
+            const payload = await res.json();
+            if (action === 'accept') {
+                await fetchDataset();
+            }
+            await fetchAutoLabelSuggestions(autoLabelModelId);
+            setSelectedIds((prev) => {
+                const next = new Set(prev);
+                selectedSuggestionIds.forEach((id) => next.delete(id));
+                return next;
+            });
+            const label = action === 'accept' ? 'accepted' : action === 'reject' ? 'rejected' : 'cleared';
+            setAutoLabelNotice(`${payload?.changed ?? 0} suggestion(s) ${label}.`);
+        } catch (error: any) {
+            setAutoLabelError(error?.message || 'Failed to apply auto-label action');
+        }
+    }, [autoLabelModelId, fetchAutoLabelSuggestions, fetchDataset, projectId, selectedSuggestionIds]);
+
     const ensureClassId = async (name: string) => {
         if (!projectId || !dataset) return null;
         const normalized = name.trim();
@@ -1175,6 +1329,19 @@ export const ProjectDataset = () => {
         setIsAugmenting(false);
         setAugmentationError(null);
         setAugmentationSummary(null);
+        setAutoLabelModels([]);
+        setAutoLabelModelId('');
+        setAutoLabelSuggestionsByImage({});
+        setAutoLabelError(null);
+        setAutoLabelNotice(null);
+        setAutoLabelRunning(false);
+        setAutoLabelProgress({
+            status: 'idle',
+            processed: 0,
+            total: 0,
+            progress: 0,
+            message: ''
+        });
         setAugmentationProgress({
             status: 'idle',
             processed: 0,
@@ -1189,6 +1356,25 @@ export const ProjectDataset = () => {
     useEffect(() => {
         fetchDataset();
     }, [projectId]);
+
+    useEffect(() => {
+        if (dataset?.task !== 'classification') {
+            setAutoLabelModels([]);
+            setAutoLabelModelId('');
+            setAutoLabelSuggestionsByImage({});
+            return;
+        }
+        void fetchAutoLabelModels();
+    }, [dataset?.task, fetchAutoLabelModels]);
+
+    useEffect(() => {
+        if (dataset?.task !== 'classification') return;
+        if (!autoLabelModelId) {
+            setAutoLabelSuggestionsByImage({});
+            return;
+        }
+        void fetchAutoLabelSuggestions(autoLabelModelId);
+    }, [autoLabelModelId, dataset?.task, fetchAutoLabelSuggestions]);
 
     useEffect(() => {
         if (dataset?.task !== 'classification') return;
@@ -1361,6 +1547,29 @@ export const ProjectDataset = () => {
                     });
                     if (nextStatus === 'completed') {
                         augmentationRequestIdRef.current = null;
+                    }
+                } else if (msg.event === 'dataset/autolabel_progress') {
+                    const data = msg.data || {};
+                    if (projectId && data.project_id && data.project_id !== projectId) return;
+                    const nextStatus = String(data.status || 'running').toLowerCase();
+                    setAutoLabelProgress({
+                        status: nextStatus === 'completed'
+                            ? 'completed'
+                            : nextStatus === 'starting'
+                                ? 'starting'
+                                : nextStatus === 'error'
+                                    ? 'error'
+                                    : 'running',
+                        processed: Number(data.processed || 0),
+                        total: Number(data.total || 0),
+                        progress: Number(data.progress || 0),
+                        message: String(data.message || ''),
+                        suggested: Number(data.suggested || 0),
+                        removed: Number(data.removed || 0),
+                        errors: Number(data.errors || 0)
+                    });
+                    if (nextStatus === 'completed' || nextStatus === 'error') {
+                        setAutoLabelRunning(false);
                     }
                 }
             } catch {
