@@ -1092,7 +1092,7 @@ export const ProjectTest = () => {
                                             <span className="truncate pr-2">{item.file.webkitRelativePath || item.file.name}</span>
                                             <button
                                                 type="button"
-                                                className="text-accent-error hover:text-accent-error/80"
+                                                className="plain-button text-accent-error hover:text-accent-error/80"
                                                 onClick={() => setQueue((prev) => prev.filter((q) => q.key !== item.key))}
                                             >
                                                 ×
@@ -1185,7 +1185,7 @@ export const ProjectTest = () => {
                                         key={item.image_id}
                                         type="button"
                                         onClick={() => setActiveHistoryId(item.image_id)}
-                                        className={`relative rounded border p-1 text-left transition-all ${
+                                        className={`plain-button block w-full rounded border p-1 text-left transition-all ${
                                             activeHistoryId === item.image_id
                                                 ? 'border-accent-primary bg-accent-primary/10'
                                                 : 'border-graphite-700/70 bg-graphite-900/60'
@@ -1388,7 +1388,7 @@ export const ProjectTest = () => {
                                                             />
                                                             <button
                                                                 type="button"
-                                                                className="text-left"
+                                                                className="plain-button text-left"
                                                                 style={{ color: focusVariantId === variant.id ? variantColor : '#f6f2de' }}
                                                                 onClick={() => setFocusVariantId(variant.id)}
                                                             >
@@ -1444,7 +1444,7 @@ export const ProjectTest = () => {
                                                                 {isDetectionResult && (
                                                                     <button
                                                                         type="button"
-                                                                        className="rounded border border-graphite-700/70 bg-graphite-900/70 p-1.5 text-secondary transition hover:border-accent-primary/60 hover:text-accent-primary"
+                                                                        className="plain-button rounded border border-graphite-700/70 bg-graphite-900/70 p-1.5 text-secondary transition hover:border-accent-primary/60 hover:text-accent-primary"
                                                                         title={isHidden ? 'Show this model bounding boxes' : 'Hide this model bounding boxes'}
                                                                         onClick={() => {
                                                                             setHiddenOverlayVariantIds((prev) => (

@@ -387,7 +387,7 @@
     background: linear-gradient(158deg, rgba(47, 184, 255, 0.18), rgba(14, 24, 32, 0.58));
   }
 
-  button:not(.window-button):not(.btn):not(.preview-nav-button) {
+  button:not(.window-button):not(.btn):not(.preview-nav-button):not(.tab-button):not(.plain-button) {
     position: relative;
     isolation: isolate;
     overflow: hidden;
@@ -397,12 +397,12 @@
     transition: border-color 150ms ease, background 150ms ease, color 150ms ease, box-shadow 150ms ease;
   }
 
-  button:not(.window-button):not(.btn):not(.preview-nav-button):not(:disabled):hover {
+  button:not(.window-button):not(.btn):not(.preview-nav-button):not(.tab-button):not(.plain-button):not(:disabled):hover {
     border-color: rgba(95, 211, 255, 0.58);
     background: linear-gradient(158deg, rgba(34, 54, 67, 0.42), rgba(14, 24, 33, 0.62));
   }
 
-  button:not(.window-button):not(.btn):not(.preview-nav-button)::after {
+  button:not(.window-button):not(.btn):not(.preview-nav-button):not(.tab-button):not(.plain-button)::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -429,12 +429,12 @@
     mask-composite: exclude;
   }
 
-  button:not(.window-button):not(.btn):not(.preview-nav-button):not(:disabled):hover::after {
+  button:not(.window-button):not(.btn):not(.preview-nav-button):not(.tab-button):not(.plain-button):not(:disabled):hover::after {
     opacity: 1;
     animation: btn-border-sweep 1.8s linear infinite;
   }
 
-  button:not(.window-button):not(.btn):not(.preview-nav-button):focus-visible {
+  button:not(.window-button):not(.btn):not(.preview-nav-button):not(.tab-button):not(.plain-button):focus-visible {
     outline: none;
     box-shadow: 0 0 0 1px rgba(47, 184, 255, 0.44), 0 0 0 3px rgba(47, 184, 255, 0.12);
   }
