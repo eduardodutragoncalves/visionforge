@@ -295,12 +295,15 @@ class Orchestrator:
              split_train = config.get("split_train")
              split_val = config.get("split_val")
              split_test = config.get("split_test")
+             dataset_version_id = str(config.get("dataset_version_id") or "").strip()
              if split_train is not None:
                  script_args.extend(["--split-train", str(split_train)])
              if split_val is not None:
                  script_args.extend(["--split-val", str(split_val)])
              if split_test is not None:
                  script_args.extend(["--split-test", str(split_test)])
+             if dataset_version_id:
+                 script_args.extend(["--dataset-version-id", dataset_version_id])
 
              gpu_devices = config.get("gpu_devices")
              if isinstance(gpu_devices, list) and gpu_devices:

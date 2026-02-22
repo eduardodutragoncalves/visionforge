@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--split-train", type=float, default=None)
     parser.add_argument("--split-val", type=float, default=None)
     parser.add_argument("--split-test", type=float, default=None)
+    parser.add_argument("--dataset-version-id", type=str, default=None)
     args = parser.parse_args()
     task = (args.task or "detect").lower()
     task_aliases = {
@@ -117,13 +118,48 @@ def main():
                 train_count = max(1, train_count - overflow)
         return train_count, val_count, test_count
 
-    def build_classification_dataset(manifest_path: Path, output_dir: Path) -> Path:
+    def load_selected_image_ids(manifest_path: Path, version_id: str):
+        versions_manifest_path = manifest_path.parent / "dataset_versions.json"
+        if not versions_manifest_path.exists():
+            raise ValueError(f"Dataset version {version_id} was selected but dataset_versions.json was not found")
+        with open(versions_manifest_path, "r") as f:
+            payload = json.load(f)
+        versions = payload.get("versions", []) if isinstance(payload, dict) else []
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            if str(version.get("id") or "") != version_id:
+                continue
+            image_ids = {
+                str(image_id)
+                for image_id in (version.get("image_ids") or [])
+                if str(image_id)
+            }
+            if not image_ids:
+                raise ValueError(f"Dataset version {version_id} has no images")
+            emit_event("train/logs", {
+                "level": "INFO",
+                "message": (
+                    f"Using dataset version {version_id} "
+                    f"({version.get('name') or 'unnamed'}) with {len(image_ids)} image(s)."
+                )
+            })
+            return image_ids
+        raise ValueError(f"Dataset version {version_id} not found")
+
+    def build_classification_dataset(manifest_path: Path, output_dir: Path, selected_image_ids=None) -> Path:
         if not manifest_path.exists():
             raise ValueError("Dataset manifest not found for classification")
         with open(manifest_path, "r") as f:
             dataset = json.load(f)
         classes = dataset.get("classes", [])
         images = dataset.get("images", [])
+        if selected_image_ids:
+            images = [
+                image
+                for image in images
+                if str(image.get("id", "")) in selected_image_ids
+            ]
         if not classes:
             raise ValueError("No classes found in dataset")
         class_map = {cls["id"]: cls["name"] for cls in classes}
@@ -165,7 +201,7 @@ def main():
                     shutil.copy2(source_path, target_path)
         return output_dir
 
-    def build_detection_dataset(manifest_path: Path, output_dir: Path):
+    def build_detection_dataset(manifest_path: Path, output_dir: Path, selected_image_ids=None):
         if not manifest_path.exists():
             raise ValueError("Dataset manifest not found for detection")
         with open(manifest_path, "r") as f:
@@ -189,6 +225,8 @@ def main():
 
         valid_images = []
         for image in images:
+            if selected_image_ids and str(image.get("id", "")) not in selected_image_ids:
+                continue
             source_path = Path(image.get("path", ""))
             if source_path.exists() and source_path.is_file():
                 valid_images.append(image)
@@ -354,12 +392,25 @@ def main():
         })
         return output_dir, class_names
 
+    selected_image_ids = None
+    manifest_path = Path(args.dataset_manifest) if args.dataset_manifest else None
+    selected_version_id = str(args.dataset_version_id or "").strip()
+    if selected_version_id:
+        if not manifest_path or not manifest_path.exists():
+            raise ValueError("Dataset version requires a valid dataset manifest")
+        selected_image_ids = load_selected_image_ids(manifest_path, selected_version_id)
+
     if task == "classify":
         classification_root = dataset_path
         train_dir = classification_root / "train"
-        if not train_dir.exists():
-            manifest_path = Path(args.dataset_manifest) if args.dataset_manifest else None
-            classification_root = build_classification_dataset(manifest_path, run_dir / "cls_dataset")
+        if selected_image_ids or not train_dir.exists():
+            if not manifest_path:
+                raise ValueError("Dataset manifest is required to build a versioned classification dataset")
+            classification_root = build_classification_dataset(
+                manifest_path,
+                run_dir / "cls_dataset",
+                selected_image_ids=selected_image_ids
+            )
         data_root = classification_root
     else:
         # Detection dataset YAML (manifest-first build for VisionForge projects)
@@ -369,11 +420,11 @@ def main():
         val_path = detection_root / "valid" / "images"
         test_path = detection_root / "test" / "images"
 
-        manifest_path = Path(args.dataset_manifest) if args.dataset_manifest else None
         if manifest_path and manifest_path.exists():
             detection_root, detection_class_names = build_detection_dataset(
                 manifest_path,
-                run_dir / "det_dataset"
+                run_dir / "det_dataset",
+                selected_image_ids=selected_image_ids
             )
             train_path = detection_root / "train" / "images"
             val_path = detection_root / "val" / "images"

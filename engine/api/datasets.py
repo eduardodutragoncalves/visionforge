@@ -8,6 +8,7 @@ from typing import List, Optional, Literal
 
 from engine.services.dataset_service import dataset_service
 from engine.services.dataset_autolabel_service import dataset_autolabel_service
+from engine.services.dataset_version_service import dataset_version_service
 from engine.io import paths
 
 router = APIRouter()
@@ -98,6 +99,15 @@ class AutoLabelApplyRequest(BaseModel):
     variant_id: str
     image_ids: List[str] = Field(default_factory=list)
     action: Literal["accept", "reject", "clear"] = "accept"
+
+
+class CreateClassificationDatasetVersionRequest(BaseModel):
+    name: Optional[str] = None
+    sample_size: Optional[int] = None
+    balance_classes: bool = False
+    orientation: Literal["any", "landscape", "portrait", "square"] = "any"
+    resolution: Literal["any", "hd", "fhd", "qhd", "uhd"] = "any"
+    seed: Optional[int] = None
 
 @router.get("/projects/{project_id}/dataset")
 async def get_dataset(project_id: str):
@@ -341,6 +351,40 @@ async def apply_autolabel_classification(project_id: str, request: AutoLabelAppl
             image_ids=request.image_ids,
             action=request.action,
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/projects/{project_id}/dataset/versions")
+async def list_dataset_versions(project_id: str):
+    try:
+        versions = dataset_version_service.list_versions(project_id)
+        return {"versions": versions}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/projects/{project_id}/dataset/versions/classification")
+async def create_classification_dataset_version(project_id: str, request: CreateClassificationDatasetVersionRequest):
+    try:
+        version = dataset_version_service.create_classification_version(
+            project_id=project_id,
+            name=request.name,
+            sample_size=request.sample_size,
+            balance_classes=request.balance_classes,
+            orientation=request.orientation,
+            resolution=request.resolution,
+            seed=request.seed,
+        )
+        return version
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/projects/{project_id}/dataset/versions/{version_id}")
+async def delete_dataset_version(project_id: str, version_id: str):
+    try:
+        return dataset_version_service.delete_version(project_id, version_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
