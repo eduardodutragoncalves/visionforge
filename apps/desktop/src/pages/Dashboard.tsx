@@ -57,6 +57,18 @@ const classifyRunStatus = (status?: string) => {
     return 'idle';
 };
 
+const DASHBOARD_BOOT_TIMEOUT_MS = 12000;
+
+const fetchWithTimeout = async (url: string, timeoutMs = DASHBOARD_BOOT_TIMEOUT_MS) => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { signal: controller.signal });
+    } finally {
+        window.clearTimeout(timer);
+    }
+};
+
 export const Dashboard = () => {
     const navigate = useNavigate();
     const { isConnected, status, gpu, gpus, setDashboardReady } = useEngineStore((state) => ({
@@ -84,8 +96,8 @@ export const Dashboard = () => {
         setError(null);
         try {
             const [projectsRes, capabilitiesRes] = await Promise.all([
-                fetch(`${ENGINE_HTTP_URL}/projects`),
-                fetch(`${ENGINE_HTTP_URL}/capabilities`)
+                fetchWithTimeout(`${ENGINE_HTTP_URL}/projects`),
+                fetchWithTimeout(`${ENGINE_HTTP_URL}/capabilities`)
             ]);
 
             if (!projectsRes.ok) {
@@ -102,7 +114,11 @@ export const Dashboard = () => {
             }
             setLastSyncAt(new Date().toISOString());
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load dashboard information.');
+            if (err instanceof DOMException && err.name === 'AbortError') {
+                setError('Dashboard request timed out. Check backend connectivity and try refresh.');
+            } else {
+                setError(err instanceof Error ? err.message : 'Failed to load dashboard information.');
+            }
         } finally {
             if (!background) {
                 setLoading(false);

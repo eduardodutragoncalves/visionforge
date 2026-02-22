@@ -11,7 +11,7 @@ export const SplashScreen = () => {
     const dashboardReady = useEngineStore((state) => state.dashboardReady);
     const normalizedPath = String(location.pathname || '').trim();
     const requiresDashboardData = normalizedPath === '' || normalizedPath === '/';
-    const splashReady = requiresDashboardData ? dashboardReady : (isConnected || dashboardReady);
+    const splashReady = requiresDashboardData ? dashboardReady : true;
     const [shouldRender, setShouldRender] = useState(!splashReady);
     const [isExiting, setIsExiting] = useState(false);
     const [visibleAt, setVisibleAt] = useState<number>(Date.now());
