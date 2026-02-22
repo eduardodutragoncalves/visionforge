@@ -1165,6 +1165,44 @@ export const ProjectDataset = () => {
         }
     }, [autoLabelModelId, fetchAutoLabelSuggestions, fetchDataset, projectId, selectedSuggestionIds]);
 
+    const handleAcceptAutoLabelSuggestion = useCallback(async (imageId: string, variantId?: string) => {
+        if (!projectId) return false;
+        const resolvedVariantId = String(variantId || autoLabelModelId || '').trim();
+        if (!resolvedVariantId) return false;
+        setAutoLabelError(null);
+        try {
+            const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/autolabel/classification/apply`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    variant_id: resolvedVariantId,
+                    image_ids: [imageId],
+                    action: 'accept'
+                })
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || 'Failed to accept suggestion');
+            }
+            const payload = await res.json();
+            await fetchDataset();
+            await fetchAutoLabelSuggestions(resolvedVariantId);
+            setSelectedIds((prev) => {
+                const next = new Set(prev);
+                next.delete(imageId);
+                return next;
+            });
+            if (Number(payload?.changed || 0) > 0) {
+                setAutoLabelNotice('Suggestion accepted and image moved to labeled.');
+                return true;
+            }
+            return false;
+        } catch (error: any) {
+            setAutoLabelError(error?.message || 'Failed to accept suggestion');
+            return false;
+        }
+    }, [autoLabelModelId, fetchAutoLabelSuggestions, fetchDataset, projectId]);
+
     const ensureClassId = async (name: string) => {
         if (!projectId || !dataset) return null;
         const normalized = name.trim();
@@ -2945,6 +2983,9 @@ export const ProjectDataset = () => {
                                         Clear selected suggestions
                                     </Button>
                                 </div>
+                                <div className="mt-2 text-[10px] uppercase tracking-[0.26em] text-secondary">
+                                    Tip: double-click an image with suggestion to accept it instantly.
+                                </div>
                                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-graphite-700/70 bg-graphite-900/60 px-3 py-2 text-[11px] text-secondary">
                                     <span>
                                         Dataset versions (sampling, balancing, orientation, resolution) are configured in Training Setup.
@@ -3209,6 +3250,10 @@ export const ProjectDataset = () => {
                                         onDoubleClick={(event) => {
                                             event.preventDefault();
                                             event.stopPropagation();
+                                            if (suggestion) {
+                                                void handleAcceptAutoLabelSuggestion(image.id, suggestion.variant_id);
+                                                return;
+                                            }
                                             setPreviewImageId(image.id);
                                         }}
                                         onKeyDown={(event) => {
