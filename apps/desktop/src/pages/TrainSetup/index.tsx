@@ -506,6 +506,7 @@ export const TrainSetup = () => {
         if (typeof cfg.split_test === 'number') {
             setSplitTestPct(cfg.split_test);
         }
+        setSelectedDatasetVersionId(typeof cfg.dataset_version_id === 'string' ? cfg.dataset_version_id : '');
     };
 
     const formatMetric = (value: any) => {
@@ -583,6 +584,72 @@ export const TrainSetup = () => {
             setConfig((prev) => ({ ...prev, base_model: modelOptions[0].value }));
         }
     }, [modelOptions, config.base_model]);
+
+    const handleCreateDatasetVersion = async () => {
+        if (!projectId || datasetTask !== 'classification') return;
+        setCreatingDatasetVersion(true);
+        setDatasetVersionError(null);
+        setDatasetVersionNotice(null);
+        const parsedSampleSize = parseIntegerInput(versionSampleSize);
+        const parsedSeed = parseIntegerInput(versionSeed);
+        try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/dataset/versions/classification`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: versionName.trim() || null,
+                    sample_size: parsedSampleSize ?? null,
+                    balance_classes: versionBalanceClasses,
+                    orientation: versionOrientation,
+                    resolution: versionResolution,
+                    seed: parsedSeed ?? null
+                })
+            });
+            if (!res.ok) {
+                const message = await res.text();
+                throw new Error(message || 'Failed to create dataset version');
+            }
+            const payload = await res.json();
+            await loadDatasetVersions();
+            if (payload?.id) {
+                setSelectedDatasetVersionId(payload.id);
+            }
+            setDatasetVersionNotice(
+                `Dataset version created with ${payload?.selected_count ?? 0} image(s).`
+            );
+        } catch (error: any) {
+            setDatasetVersionError(error?.message || 'Failed to create dataset version');
+        } finally {
+            setCreatingDatasetVersion(false);
+        }
+    };
+
+    const handleDeleteDatasetVersion = async (versionId: string) => {
+        if (!projectId || !versionId) return;
+        const target = datasetVersions.find((item) => item.id === versionId);
+        const confirmed = window.confirm(
+            `Delete dataset version ${target?.name || versionId}?\n\nThis will not remove original images.`
+        );
+        if (!confirmed) return;
+        setDatasetVersionError(null);
+        setDatasetVersionNotice(null);
+        try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/dataset/versions/${versionId}`, {
+                method: 'DELETE'
+            });
+            if (!res.ok) {
+                const message = await res.text();
+                throw new Error(message || 'Failed to delete dataset version');
+            }
+            await loadDatasetVersions();
+            if (selectedDatasetVersionId === versionId) {
+                setSelectedDatasetVersionId('');
+            }
+            setDatasetVersionNotice('Dataset version deleted.');
+        } catch (error: any) {
+            setDatasetVersionError(error?.message || 'Failed to delete dataset version');
+        }
+    };
 
     const handleStart = async () => {
         if (!projectId) return;
