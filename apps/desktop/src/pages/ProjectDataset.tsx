@@ -3760,31 +3760,33 @@ export const ProjectDataset = () => {
                                         <X size={14} />
                                     </button>
                                 </div>
-                                <img
-                                    src={getImageSrc(previewImage)}
-                                    alt={previewImage.id}
-                                    className="modal-image"
-                                />
-                                <button
-                                    type="button"
-                                    className={clsx('preview-nav-button preview-nav-prev', !canGoPrevPreviewImage && 'preview-nav-button-disabled')}
-                                    onClick={goToPreviousPreviewImage}
-                                    disabled={!canGoPrevPreviewImage}
-                                    title="Previous image (Left Arrow)"
-                                    aria-label="Previous image"
-                                >
-                                    <ChevronLeft size={18} />
-                                </button>
-                                <button
-                                    type="button"
-                                    className={clsx('preview-nav-button preview-nav-next', !canGoNextPreviewImage && 'preview-nav-button-disabled')}
-                                    onClick={goToNextPreviewImage}
-                                    disabled={!canGoNextPreviewImage}
-                                    title="Next image (Right Arrow)"
-                                    aria-label="Next image"
-                                >
-                                    <ChevronRight size={18} />
-                                </button>
+                                <div className="modal-image-frame">
+                                    <img
+                                        src={getImageSrc(previewImage)}
+                                        alt={previewImage.id}
+                                        className="modal-image"
+                                    />
+                                    <button
+                                        type="button"
+                                        className={clsx('preview-nav-button preview-nav-prev', !canGoPrevPreviewImage && 'preview-nav-button-disabled')}
+                                        onClick={goToPreviousPreviewImage}
+                                        disabled={!canGoPrevPreviewImage}
+                                        title="Previous image (Left Arrow)"
+                                        aria-label="Previous image"
+                                    >
+                                        <ChevronLeft size={18} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={clsx('preview-nav-button preview-nav-next', !canGoNextPreviewImage && 'preview-nav-button-disabled')}
+                                        onClick={goToNextPreviewImage}
+                                        disabled={!canGoNextPreviewImage}
+                                        title="Next image (Right Arrow)"
+                                        aria-label="Next image"
+                                    >
+                                        <ChevronRight size={18} />
+                                    </button>
+                                </div>
                                 {PRECLASSIFY_ENABLED && preclassifyResults[previewImage.id]?.length ? (
                                     <div className="modal-labels">
                                         {preclassifyResults[previewImage.id].map((prediction) => (

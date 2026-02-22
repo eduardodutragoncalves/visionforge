@@ -664,27 +664,31 @@
   }
 
   .modal-image {
-    @apply mt-4 w-full object-contain bg-graphite-950/60;
+    @apply w-full object-contain bg-graphite-950/60;
     max-height: 60vh;
     border-radius: 16px;
   }
 
+  .modal-image-frame {
+    @apply relative mt-4;
+  }
+
   .preview-nav-button {
-    @apply fixed inline-flex h-12 w-12 items-center justify-center border border-graphite-700/70 bg-graphite-900 text-bone transition;
+    @apply absolute inline-flex h-12 w-12 items-center justify-center border border-graphite-700/70 bg-graphite-900 text-bone transition;
     top: 50%;
     transform: translateY(-50%);
     border-radius: 999px;
-    z-index: 70;
+    z-index: 2;
     background-color: rgba(12, 20, 26, 0.92);
     box-shadow: 0 8px 18px rgba(6, 12, 18, 0.62);
   }
 
   .preview-nav-prev {
-    left: clamp(20px, 3vw, 56px);
+    left: clamp(10px, 1.8vw, 22px);
   }
 
   .preview-nav-next {
-    right: clamp(20px, 3vw, 56px);
+    right: clamp(10px, 1.8vw, 22px);
   }
 
   .preview-nav-button:hover:not(:disabled) {
