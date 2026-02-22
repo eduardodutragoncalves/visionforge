@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { Copy, FolderOpen, Image, Film, Loader2, Plus, X, GripVertical, Sparkles } from 'lucide-react';
+import { Copy, FolderOpen, Image, Film, Loader2, Plus, X, GripVertical, Search, Sparkles } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -3274,8 +3274,20 @@ export const ProjectDataset = () => {
                                         <div className="absolute left-2 top-2 rounded-full border border-graphite-700/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-secondary">
                                             {index + 1}
                                         </div>
+                                        <button
+                                            type="button"
+                                            className="absolute right-2 top-2 z-20 inline-flex h-6 w-6 items-center justify-center rounded-full border border-graphite-700/70 bg-graphite-900/90 text-secondary transition hover:border-accent-primary hover:text-bone"
+                                            title="Open preview"
+                                            onClick={(event) => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                setPreviewImageId(image.id);
+                                            }}
+                                        >
+                                            <Search size={12} />
+                                        </button>
                                         {image.is_augmented && (
-                                            <div className="absolute right-2 top-2 rounded-full border border-accent-primary/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-accent-primary">
+                                            <div className="absolute right-10 top-2 rounded-full border border-accent-primary/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-accent-primary">
                                                 Aug
                                             </div>
                                         )}
@@ -3854,10 +3866,17 @@ export const ProjectDataset = () => {
                                         style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}
                                     >
                                         {renderedDetectionImages.map((image, index) => (
-                                            <button
+                                            <div
                                                 key={image.id}
-                                                type="button"
                                                 onClick={() => setActiveImageId(image.id)}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter' || event.key === ' ') {
+                                                        event.preventDefault();
+                                                        setActiveImageId(image.id);
+                                                    }
+                                                }}
+                                                role="button"
+                                                tabIndex={0}
                                                 className={clsx(
                                                     'image-card relative text-left',
                                                     activeImageId === image.id && 'image-card-selected'
@@ -3866,8 +3885,20 @@ export const ProjectDataset = () => {
                                                 <span className="absolute left-2 top-2 rounded-full border border-graphite-700/70 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-secondary">
                                                     {index + 1}
                                                 </span>
+                                                <button
+                                                    type="button"
+                                                    className="absolute right-2 top-2 z-20 inline-flex h-6 w-6 items-center justify-center rounded-full border border-graphite-700/70 bg-graphite-900/90 text-secondary transition hover:border-accent-primary hover:text-bone"
+                                                    title="Open preview"
+                                                    onClick={(event) => {
+                                                        event.preventDefault();
+                                                        event.stopPropagation();
+                                                        setPreviewImageId(image.id);
+                                                    }}
+                                                >
+                                                    <Search size={12} />
+                                                </button>
                                                 {image.detection_done && (
-                                                    <span className="absolute right-2 top-2 rounded-full border border-accent-success/50 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-accent-success">
+                                                    <span className="absolute right-10 top-2 rounded-full border border-accent-success/50 bg-graphite-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-accent-success">
                                                         Done
                                                     </span>
                                                 )}
@@ -3882,7 +3913,7 @@ export const ProjectDataset = () => {
                                                     <span className="truncate">{image.id}</span>
                                                     <span>{image.boxes.length}</span>
                                                 </div>
-                                            </button>
+                                            </div>
                                         ))}
                                         {canLoadMoreDetection && (
                                             <div
