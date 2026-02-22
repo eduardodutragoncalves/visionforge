@@ -275,6 +275,7 @@ export const ProjectDataset = () => {
     const [classificationTab, setClassificationTab] = useState<'unlabeled' | 'labeled'>('unlabeled');
     const [detectionTab, setDetectionTab] = useState<'unlabeled' | 'labeled'>('unlabeled');
     const [labeledClassFilter, setLabeledClassFilter] = useState<number | null>(null);
+    const [unlabeledSuggestionFilter, setUnlabeledSuggestionFilter] = useState<number | null>(null);
     const [classificationAugmentedFilter, setClassificationAugmentedFilter] = useState<ClassificationAugmentedFilter>('all');
     const [detectionLabeledClassFilters, setDetectionLabeledClassFilters] = useState<number[]>([]);
     const [thumbSize, setThumbSize] = useState<'sm' | 'lg' | 'xl'>('lg');
@@ -499,6 +500,43 @@ export const ProjectDataset = () => {
         () => pageUnlabeledImages.filter(isVisibleByAugmentedFilter),
         [pageUnlabeledImages, isVisibleByAugmentedFilter]
     );
+    const unlabeledSuggestionBreakdown = useMemo(() => {
+        const counts = new Map<number, number>();
+        const names = new Map<number, string>();
+        const colors = new Map<number, string>();
+        filteredUnlabeledImages.forEach((image) => {
+            const suggestion = autoLabelSuggestionsByImage[image.id];
+            if (!suggestion) return;
+            const classId = Number(suggestion.predicted_class_id);
+            if (!Number.isFinite(classId)) return;
+            counts.set(classId, (counts.get(classId) || 0) + 1);
+            const classMeta = classes.find((cls) => cls.id === classId);
+            names.set(classId, classMeta?.name || suggestion.predicted_class_name || `Class ${classId}`);
+            colors.set(classId, classMeta?.color || '#2fb8ff');
+        });
+        return Array.from(counts.entries())
+            .map(([classId, count]) => ({
+                classId,
+                count,
+                name: names.get(classId) || `Class ${classId}`,
+                color: colors.get(classId) || '#2fb8ff'
+            }))
+            .sort((a, b) => {
+                const diff = b.count - a.count;
+                if (diff !== 0) return diff;
+                return a.name.localeCompare(b.name);
+            });
+    }, [autoLabelSuggestionsByImage, classes, filteredUnlabeledImages]);
+    const filteredUnlabeledImagesBySuggestion = useMemo(() => {
+        if (unlabeledSuggestionFilter === null) return filteredUnlabeledImages;
+        return filteredUnlabeledImages.filter(
+            (image) => autoLabelSuggestionsByImage[image.id]?.predicted_class_id === unlabeledSuggestionFilter
+        );
+    }, [autoLabelSuggestionsByImage, filteredUnlabeledImages, unlabeledSuggestionFilter]);
+    const unlabeledSuggestionTotal = useMemo(
+        () => unlabeledSuggestionBreakdown.reduce((sum, item) => sum + item.count, 0),
+        [unlabeledSuggestionBreakdown]
+    );
     const labeledImagesByAugmentedFilter = useMemo(
         () => pageLabeledImages.filter(isVisibleByAugmentedFilter),
         [pageLabeledImages, isVisibleByAugmentedFilter]
@@ -507,7 +545,7 @@ export const ProjectDataset = () => {
         if (labeledClassFilter === null) return labeledImagesByAugmentedFilter;
         return labeledImagesByAugmentedFilter.filter((image) => image.labels.includes(labeledClassFilter));
     }, [labeledImagesByAugmentedFilter, labeledClassFilter]);
-    const visibleImages = classificationTab === 'labeled' ? filteredLabeledImages : filteredUnlabeledImages;
+    const visibleImages = classificationTab === 'labeled' ? filteredLabeledImages : filteredUnlabeledImagesBySuggestion;
     const pendingSuggestionIds = useMemo(
         () => Object.keys(autoLabelSuggestionsByImage),
         [autoLabelSuggestionsByImage]
@@ -672,7 +710,7 @@ export const ProjectDataset = () => {
 
     useEffect(() => {
         setClassificationRenderCount(CLASSIFICATION_INITIAL_RENDER);
-    }, [classificationTab, labeledClassFilter, classificationAugmentedFilter, imageOffset, images.length]);
+    }, [classificationTab, labeledClassFilter, unlabeledSuggestionFilter, classificationAugmentedFilter, imageOffset, images.length]);
 
     useEffect(() => {
         setDetectionRenderCount(DETECTION_INITIAL_RENDER);
@@ -2519,7 +2557,18 @@ export const ProjectDataset = () => {
         if (classificationTab !== 'labeled') {
             setLabeledClassFilter(null);
         }
+        if (classificationTab !== 'unlabeled') {
+            setUnlabeledSuggestionFilter(null);
+        }
     }, [classificationTab]);
+
+    useEffect(() => {
+        if (unlabeledSuggestionFilter === null) return;
+        const exists = unlabeledSuggestionBreakdown.some((item) => item.classId === unlabeledSuggestionFilter);
+        if (!exists) {
+            setUnlabeledSuggestionFilter(null);
+        }
+    }, [unlabeledSuggestionBreakdown, unlabeledSuggestionFilter]);
 
     useEffect(() => {
         setSelectedIds(new Set());
@@ -3196,6 +3245,39 @@ export const ProjectDataset = () => {
                                             onClick={() => setLabeledClassFilter(cls.id)}
                                         >
                                             {cls.name} ({balanceById.get(cls.id) || 0})
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {classificationTab === 'unlabeled' && unlabeledSuggestionBreakdown.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.3em] text-secondary">
+                                    <span className="text-secondary">Suggestion filter</span>
+                                    <button
+                                        type="button"
+                                        className={clsx(
+                                            'tab-button',
+                                            unlabeledSuggestionFilter === null && 'tab-button-active'
+                                        )}
+                                        onClick={() => setUnlabeledSuggestionFilter(null)}
+                                    >
+                                        All ({unlabeledSuggestionTotal})
+                                    </button>
+                                    {unlabeledSuggestionBreakdown.map((item) => (
+                                        <button
+                                            key={`unlabeled-suggestion-filter-${item.classId}`}
+                                            type="button"
+                                            className={clsx(
+                                                'tab-button inline-flex items-center gap-2',
+                                                unlabeledSuggestionFilter === item.classId && 'tab-button-active'
+                                            )}
+                                            onClick={() => setUnlabeledSuggestionFilter(item.classId)}
+                                        >
+                                            <span
+                                                className="h-2 w-2 rounded-full"
+                                                style={{ backgroundColor: item.color }}
+                                            />
+                                            <span className="truncate max-w-[120px]">{item.name}</span>
+                                            <span className="tabular-nums">{item.count}</span>
                                         </button>
                                     ))}
                                 </div>
