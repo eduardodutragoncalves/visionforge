@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { Copy, FolderOpen, Image, Film, Loader2, Plus, X, GripVertical, Search, Sparkles } from 'lucide-react';
+import { Copy, FolderOpen, Image, Film, Loader2, Plus, X, GripVertical, Search, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -565,6 +565,13 @@ export const ProjectDataset = () => {
         [visibleImages, classificationRenderCount]
     );
     const canLoadMoreClassification = renderedClassificationImages.length < visibleImages.length;
+    const previewImageIndex = useMemo(
+        () => visibleImages.findIndex((image) => image.id === previewImageId),
+        [visibleImages, previewImageId]
+    );
+    const canGoPrevPreviewImage = previewImageIndex > 0;
+    const canGoNextPreviewImage =
+        previewImageIndex >= 0 && previewImageIndex < visibleImages.length - 1;
     const classificationAugmentedCount = useMemo(
         () => images.filter((image) => Boolean(image.is_augmented)).length,
         [images]
@@ -2003,6 +2010,32 @@ export const ProjectDataset = () => {
         await handleDeleteImages([imageId]);
     };
 
+    const goToPreviousPreviewImage = useCallback(() => {
+        if (!canGoPrevPreviewImage) return;
+        const target = visibleImages[previewImageIndex - 1];
+        if (target) {
+            setPreviewImageId(target.id);
+        }
+    }, [canGoPrevPreviewImage, previewImageIndex, visibleImages]);
+
+    const goToNextPreviewImage = useCallback(() => {
+        if (!canGoNextPreviewImage) return;
+        const target = visibleImages[previewImageIndex + 1];
+        if (target) {
+            setPreviewImageId(target.id);
+        }
+    }, [canGoNextPreviewImage, previewImageIndex, visibleImages]);
+
+    const handleDeleteFromPreview = useCallback(async (imageId: string) => {
+        const index = visibleImages.findIndex((image) => image.id === imageId);
+        const nextImageId = index >= 0 && index < visibleImages.length - 1
+            ? visibleImages[index + 1].id
+            : null;
+        const deleted = await handleDeleteImages([imageId]);
+        if (!deleted) return;
+        setPreviewImageId(nextImageId);
+    }, [handleDeleteImages, visibleImages]);
+
     const normalizeBox = (box: BoundingBox): BoundingBox => {
         const clamp = (value: number) => Math.max(0, Math.min(1, value));
         return {
@@ -2431,13 +2464,26 @@ export const ProjectDataset = () => {
     useEffect(() => {
         if (!previewImageId) return;
         const handleKey = (event: KeyboardEvent) => {
+            if (isEditableTarget(event.target)) return;
             if (event.key === 'Escape') {
+                event.preventDefault();
                 setPreviewImageId(null);
+                return;
+            }
+            if (dataset?.task !== 'classification') return;
+            if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                goToPreviousPreviewImage();
+                return;
+            }
+            if (event.key === 'ArrowRight') {
+                event.preventDefault();
+                goToNextPreviewImage();
             }
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [previewImageId]);
+    }, [dataset?.task, goToNextPreviewImage, goToPreviousPreviewImage, previewImageId]);
 
     useEffect(() => {
         if (dataset?.task !== 'classification' || classes.length === 0) return;
@@ -3706,6 +3752,26 @@ export const ProjectDataset = () => {
                                     alt={previewImage.id}
                                     className="modal-image"
                                 />
+                                <button
+                                    type="button"
+                                    className={clsx('preview-nav-button preview-nav-prev', !canGoPrevPreviewImage && 'preview-nav-button-disabled')}
+                                    onClick={goToPreviousPreviewImage}
+                                    disabled={!canGoPrevPreviewImage}
+                                    title="Previous image (Left Arrow)"
+                                    aria-label="Previous image"
+                                >
+                                    <ChevronLeft size={18} />
+                                </button>
+                                <button
+                                    type="button"
+                                    className={clsx('preview-nav-button preview-nav-next', !canGoNextPreviewImage && 'preview-nav-button-disabled')}
+                                    onClick={goToNextPreviewImage}
+                                    disabled={!canGoNextPreviewImage}
+                                    title="Next image (Right Arrow)"
+                                    aria-label="Next image"
+                                >
+                                    <ChevronRight size={18} />
+                                </button>
                                 {PRECLASSIFY_ENABLED && preclassifyResults[previewImage.id]?.length ? (
                                     <div className="modal-labels">
                                         {preclassifyResults[previewImage.id].map((prediction) => (
@@ -3760,7 +3826,7 @@ export const ProjectDataset = () => {
                                         size="sm"
                                         variant="secondary"
                                         className="border-accent-error/60 text-accent-error hover:text-white"
-                                        onClick={() => handleDeleteImage(previewImage.id)}
+                                        onClick={() => handleDeleteFromPreview(previewImage.id)}
                                     >
                                         Delete image
                                     </Button>
