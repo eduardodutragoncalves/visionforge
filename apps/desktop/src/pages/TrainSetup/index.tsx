@@ -907,6 +907,128 @@ export const TrainSetup = () => {
                                     YOLOv5u models are available for detection in this Ultralytics release. Classification currently uses YOLOv8, YOLO11 and YOLO26 families.
                                 </div>
                             )}
+                            {datasetTask === 'classification' && (
+                                <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-accent-primary/25 bg-accent-primary/5 px-3 py-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="text-xs uppercase tracking-[0.24em] text-secondary">Dataset versions</div>
+                                        <div className="flex items-center gap-2">
+                                            <Button size="sm" variant="ghost" onClick={loadDatasetVersions} disabled={datasetVersionsLoading}>
+                                                <RefreshCcw size={12} className="mr-1" />
+                                                {datasetVersionsLoading ? 'Refreshing...' : 'Refresh'}
+                                            </Button>
+                                            {selectedDatasetVersionId && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="text-error hover:text-error"
+                                                    onClick={() => handleDeleteDatasetVersion(selectedDatasetVersionId)}
+                                                >
+                                                    <Trash2 size={12} className="mr-1" />
+                                                    Delete selected
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3">
+                                        <Select
+                                            label="Training dataset"
+                                            value={selectedDatasetVersionId}
+                                            onChange={(e) => setSelectedDatasetVersionId(e.target.value)}
+                                            options={[
+                                                { value: '', label: 'Default labeled dataset (all images)' },
+                                                ...datasetVersions.map((version) => ({
+                                                    value: version.id,
+                                                    label: `${version.name} (${version.selected_count ?? 0})`
+                                                }))
+                                            ]}
+                                        />
+                                    </div>
+
+                                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                        <Input
+                                            label="Version name (optional)"
+                                            placeholder="Balanced FHD sample"
+                                            value={versionName}
+                                            onChange={(e) => setVersionName(e.target.value)}
+                                        />
+                                        <Input
+                                            label="Sample size (optional)"
+                                            type="number"
+                                            min={1}
+                                            value={versionSampleSize}
+                                            onChange={(e) => setVersionSampleSize(e.target.value)}
+                                        />
+                                        <Select
+                                            label="Orientation"
+                                            value={versionOrientation}
+                                            onChange={(e) => setVersionOrientation(e.target.value as DatasetVersionOrientation)}
+                                            options={[
+                                                { value: 'any', label: 'Any orientation' },
+                                                { value: 'landscape', label: 'Landscape only' },
+                                                { value: 'portrait', label: 'Portrait only' },
+                                                { value: 'square', label: 'Square only' }
+                                            ]}
+                                        />
+                                        <Select
+                                            label="Resolution tier"
+                                            value={versionResolution}
+                                            onChange={(e) => setVersionResolution(e.target.value as DatasetVersionResolution)}
+                                            options={[
+                                                { value: 'any', label: 'Any resolution' },
+                                                { value: 'hd', label: 'HD (1280x720)' },
+                                                { value: 'fhd', label: 'Full HD (1920x1080)' },
+                                                { value: 'qhd', label: '2K/QHD (2560x1440)' },
+                                                { value: 'uhd', label: '4K/UHD (3840x2160)' }
+                                            ]}
+                                        />
+                                        <Input
+                                            label="Random seed (optional)"
+                                            type="number"
+                                            min={0}
+                                            value={versionSeed}
+                                            onChange={(e) => setVersionSeed(e.target.value)}
+                                        />
+                                        <label className="flex items-center gap-2 rounded-lg border border-graphite-700/70 bg-graphite-900/70 px-3 py-2 text-sm text-secondary">
+                                            <input
+                                                type="checkbox"
+                                                checked={versionBalanceClasses}
+                                                onChange={(e) => setVersionBalanceClasses(e.target.checked)}
+                                            />
+                                            Balance classes
+                                        </label>
+                                    </div>
+
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={handleCreateDatasetVersion}
+                                            disabled={creatingDatasetVersion}
+                                        >
+                                            {creatingDatasetVersion ? 'Creating...' : 'Create dataset version'}
+                                        </Button>
+                                    </div>
+
+                                    {datasetVersionError && (
+                                        <div className="mt-3 rounded border border-accent-error/40 bg-accent-error/10 px-2 py-2 text-xs text-accent-error">
+                                            {datasetVersionError}
+                                        </div>
+                                    )}
+                                    {datasetVersionNotice && (
+                                        <div className="mt-3 rounded border border-accent-success/35 bg-accent-success/10 px-2 py-2 text-xs text-accent-success">
+                                            {datasetVersionNotice}
+                                        </div>
+                                    )}
+                                    {selectedDatasetVersion && (
+                                        <div className="mt-3 rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-2 text-xs text-secondary">
+                                            Selected: <span className="text-bone font-semibold">{selectedDatasetVersion.name}</span> ·
+                                            {' '}Images <span className="text-bone font-semibold">{selectedDatasetVersion.selected_count ?? 0}</span>
+                                            {' '}of <span className="text-bone font-semibold">{selectedDatasetVersion.source_count ?? 0}</span>.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </Card>
 
@@ -1035,6 +1157,14 @@ export const TrainSetup = () => {
                             <div>Model: <span className="text-bone">{config.base_model}</span></div>
                             <div>Epochs: <span className="text-bone">{config.epochs}</span></div>
                             <div>Batch: <span className="text-bone">{config.batch_size}</span></div>
+                            {datasetTask === 'classification' && (
+                                <div>
+                                    Dataset version:{' '}
+                                    <span className="text-bone">
+                                        {selectedDatasetVersion?.name || 'Default labeled dataset'}
+                                    </span>
+                                </div>
+                            )}
                         </div>
 
                         <div className="mt-8 pt-6 border-t border-white/10">
@@ -1223,6 +1353,11 @@ export const TrainSetup = () => {
                                                         Split <strong className="text-bone">{run.config?.split_train ?? 0}%/{run.config?.split_val ?? 0}%/{run.config?.split_test ?? 0}%</strong>
                                                     </span>
                                                 )}
+                                            {run.config?.dataset_version_id && (
+                                                <span className="rounded border border-accent-primary/35 bg-accent-primary/10 px-1.5 py-1">
+                                                    Dataset <strong className="text-bone">{run.config.dataset_version_id}</strong>
+                                                </span>
+                                            )}
                                             {run.created_at && (
                                                 <span className="rounded border border-graphite-700/70 bg-graphite-900 px-1.5 py-1">
                                                     Started <strong className="text-bone">{new Date(run.created_at).toLocaleString()}</strong>
