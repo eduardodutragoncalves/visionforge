@@ -44,11 +44,10 @@ export const useEngineStore = create<EngineState>((set) => ({
     dashboardReady: false,
 
     setConnected: (connected) =>
-        set((state) => ({
+        set({
             isConnected: connected,
-            status: connected ? 'idle' : 'offline',
-            dashboardReady: connected ? state.dashboardReady : false
-        })),
+            status: connected ? 'idle' : 'offline'
+        }),
     setEngineStatus: (status) => set({ status }),
     setDashboardReady: (ready) => set({ dashboardReady: ready }),
     setGpuStats: (gpus, timestamp) =>
