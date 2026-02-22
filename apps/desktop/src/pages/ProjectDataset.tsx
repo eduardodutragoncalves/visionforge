@@ -1962,11 +1962,11 @@ export const ProjectDataset = () => {
     };
 
     const handleAssignClassSingle = async (imageId: string, classId: number) => {
-        if (!projectId) return;
+        if (!projectId) return false;
         const current = images.find((image) => image.id === imageId);
         const prevLabels = current?.labels ?? [];
         const nextLabels = [classId];
-        if (labelsEqual(prevLabels, nextLabels)) return;
+        if (labelsEqual(prevLabels, nextLabels)) return false;
         pushUndo([{ imageId, prevLabels, nextLabels }]);
         setImages((prev) =>
             prev.map((image) =>
@@ -1974,7 +1974,17 @@ export const ProjectDataset = () => {
             )
         );
         enqueuePending({ type: 'labels', imageId, labels: [classId], updatedAt: Date.now() });
+        return true;
     };
+
+    const handleAssignClassFromPreview = useCallback(async (imageId: string, classId: number) => {
+        const index = visibleImages.findIndex((image) => image.id === imageId);
+        const nextImageId = index >= 0 && index < visibleImages.length - 1
+            ? visibleImages[index + 1].id
+            : null;
+        await handleAssignClassSingle(imageId, classId);
+        setPreviewImageId(nextImageId);
+    }, [handleAssignClassSingle, visibleImages]);
 
     const handleClearLabelsSingle = async (imageId: string) => {
         if (!projectId) return;
@@ -2440,7 +2450,7 @@ export const ProjectDataset = () => {
             if (!targetClass) return;
             if (previewImageId) {
                 event.preventDefault();
-                void handleAssignClassSingle(previewImageId, targetClass.id);
+                void handleAssignClassFromPreview(previewImageId, targetClass.id);
                 return;
             }
             if (selectedIds.size > 0) {
@@ -2450,7 +2460,7 @@ export const ProjectDataset = () => {
         };
         window.addEventListener('keydown', handleShortcut);
         return () => window.removeEventListener('keydown', handleShortcut);
-    }, [dataset?.task, classes, previewImageId, selectedIds, handleAssignClass, handleAssignClassSingle]);
+    }, [dataset?.task, classes, previewImageId, selectedIds, handleAssignClass, handleAssignClassFromPreview]);
 
     useEffect(() => {
         if (dataset?.task !== 'classification') return;
@@ -3716,7 +3726,7 @@ export const ProjectDataset = () => {
                                             key={cls.id}
                                             size="sm"
                                             variant="secondary"
-                                            onClick={() => handleAssignClassSingle(previewImage.id, cls.id)}
+                                            onClick={() => handleAssignClassFromPreview(previewImage.id, cls.id)}
                                             className={clsx(
                                                 previewImage.labels.includes(cls.id) && 'border-accent-primary text-white'
                                             )}
