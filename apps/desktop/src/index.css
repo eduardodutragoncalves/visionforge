@@ -593,26 +593,26 @@
     box-shadow: 0 0 8px rgba(246, 183, 60, 0.6);
   }
 
-  .splash-inline {
-    @apply absolute right-8 z-20 pointer-events-none;
-    top: 72px;
+  .splash-overlay {
+    @apply fixed inset-0 z-[80] flex items-center justify-center bg-graphite-950/88;
     transition: opacity 0.28s ease, transform 0.28s ease;
+    backdrop-filter: blur(3px);
   }
 
-  .splash-inline-enter {
+  .splash-overlay-enter {
     opacity: 1;
     transform: translateY(0);
   }
 
-  .splash-inline-exit {
+  .splash-overlay-exit {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(-6px);
   }
 
-  .splash-inline-card {
+  .splash-overlay-card {
     @apply border border-graphite-700/70 bg-graphite-900 px-6 py-3 shadow-card;
     border-radius: 14px;
-    min-width: 260px;
+    min-width: min(440px, 88vw);
   }
 
   .splash-inline-title {
