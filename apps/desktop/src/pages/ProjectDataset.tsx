@@ -1051,31 +1051,36 @@ export const ProjectDataset = () => {
     const fetchDataset = async () => {
         if (!projectId) return;
         setLoading(true);
+        setDatasetError(null);
         try {
             const res = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset`);
-            if (res.ok) {
-                const data = await res.json();
-                setDataset(data);
-                const total = Array.isArray(data.images) ? data.images.length : 0;
-                applyPagination(0, total);
-                if (pendingRef.current.length === 0) {
-                    const pending = readPendingSaves(projectId);
-                    pendingRef.current = pending;
-                    setPendingCount(pending.length);
-                    if (pending.length > 0) {
-                        setSaveStatus('pending');
-                    }
-                }
-                const baseImages = applyPendingToImages(data.images ?? [], pendingRef.current);
-                setImages(baseImages);
-                if (pendingRef.current.length > 0) {
-                    void flushPending();
-                } else {
-                    setSaveStatus('saved');
-                }
-            } else {
-                await loadImages(imageOffset, imageTotal);
+            if (!res.ok) {
+                throw new Error(await readErrorMessage(res, 'Failed to load project dataset.'));
             }
+            const data = await res.json();
+            setDataset(data);
+            const total = Array.isArray(data.images) ? data.images.length : 0;
+            applyPagination(0, total);
+            if (pendingRef.current.length === 0) {
+                const pending = readPendingSaves(projectId);
+                pendingRef.current = pending;
+                setPendingCount(pending.length);
+                if (pending.length > 0) {
+                    setSaveStatus('pending');
+                }
+            }
+            const baseImages = applyPendingToImages(data.images ?? [], pendingRef.current);
+            setImages(baseImages);
+            if (pendingRef.current.length > 0) {
+                void flushPending();
+            } else {
+                setSaveStatus('saved');
+            }
+        } catch (error: any) {
+            setDataset(null);
+            setImages([]);
+            setDatasetError(error?.message || 'Failed to load project dataset.');
+            setSaveStatus('idle');
         } finally {
             setLoading(false);
         }
@@ -1733,44 +1738,83 @@ export const ProjectDataset = () => {
 
     const handleIngestDirectories = async () => {
         if (!projectId) return;
+        if (!window.ipcRenderer?.openDirectory) {
+            setDatasetError('Desktop file dialog is unavailable. Restart the app and try again.');
+            return;
+        }
         const path = await window.ipcRenderer?.openDirectory?.();
         if (!path) return;
         setIngesting(true);
-        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/ingest/directories`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ paths: [path] })
-        });
-        await fetchDataset();
-        setIngesting(false);
+        setDatasetError(null);
+        try {
+            const response = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/ingest/directories`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paths: [path] })
+            });
+            if (!response.ok) {
+                throw new Error(await readErrorMessage(response, 'Failed to import directory.'));
+            }
+            await fetchDataset();
+        } catch (error: any) {
+            setDatasetError(error?.message || 'Failed to import directory.');
+        } finally {
+            setIngesting(false);
+        }
     };
 
     const handleIngestFiles = async () => {
         if (!projectId) return;
+        if (!window.ipcRenderer?.openFiles) {
+            setDatasetError('Desktop file dialog is unavailable. Restart the app and try again.');
+            return;
+        }
         const paths = await window.ipcRenderer?.openFiles?.();
         if (!paths || paths.length === 0) return;
         setIngesting(true);
-        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/ingest/files`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ paths })
-        });
-        await fetchDataset();
-        setIngesting(false);
+        setDatasetError(null);
+        try {
+            const response = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/ingest/files`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paths })
+            });
+            if (!response.ok) {
+                throw new Error(await readErrorMessage(response, 'Failed to import files.'));
+            }
+            await fetchDataset();
+        } catch (error: any) {
+            setDatasetError(error?.message || 'Failed to import files.');
+        } finally {
+            setIngesting(false);
+        }
     };
 
     const handleIngestVideo = async () => {
         if (!projectId) return;
+        if (!window.ipcRenderer?.openVideo) {
+            setDatasetError('Desktop file dialog is unavailable. Restart the app and try again.');
+            return;
+        }
         const path = await window.ipcRenderer?.openVideo?.();
         if (!path) return;
         setIngesting(true);
-        await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/ingest/video`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path, frame_interval: frameInterval })
-        });
-        await fetchDataset();
-        setIngesting(false);
+        setDatasetError(null);
+        try {
+            const response = await fetch(`${API_BASE_URL}/projects/${projectId}/dataset/ingest/video`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path, frame_interval: frameInterval })
+            });
+            if (!response.ok) {
+                throw new Error(await readErrorMessage(response, 'Failed to import video.'));
+            }
+            await fetchDataset();
+        } catch (error: any) {
+            setDatasetError(error?.message || 'Failed to import video.');
+        } finally {
+            setIngesting(false);
+        }
     };
 
     const handleValidate = async () => {
@@ -2976,6 +3020,19 @@ export const ProjectDataset = () => {
             {loading ? (
                 <Card>
                     <div className="text-secondary">Loading dataset...</div>
+                </Card>
+            ) : datasetError ? (
+                <Card className="space-y-3">
+                    <div className="text-error text-sm">{datasetError}</div>
+                    <div className="text-secondary text-xs">Check backend connectivity and try loading this project again.</div>
+                    <div className="flex gap-2">
+                        <Button variant="secondary" onClick={fetchDataset}>
+                            Retry
+                        </Button>
+                        <Button variant="ghost" onClick={() => navigate('/projects')}>
+                            Back to Projects
+                        </Button>
+                    </div>
                 </Card>
             ) : (
                 <>
@@ -4353,6 +4410,19 @@ export const ProjectDataset = () => {
                                         </div>
                                     )}
                                 </div>
+                            </div>
+                        </Card>
+                    )}
+                    {!dataset && (
+                        <Card className="space-y-3">
+                            <div className="text-secondary text-sm">No dataset metadata available for this project.</div>
+                            <div className="flex gap-2">
+                                <Button variant="secondary" onClick={fetchDataset}>
+                                    Retry
+                                </Button>
+                                <Button variant="ghost" onClick={() => navigate('/projects')}>
+                                    Back to Projects
+                                </Button>
                             </div>
                         </Card>
                     )}
