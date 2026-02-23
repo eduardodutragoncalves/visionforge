@@ -98,6 +98,21 @@ This starts:
 - Engine API on `http://127.0.0.1:8000`
 - Desktop renderer (Vite/Electron)
 
+### Database Bootstrap (SQLite)
+
+The engine now bootstraps and applies SQL migrations on startup.
+
+Optional environment variables:
+
+- `VISIONFORGE_DB_PATH`: override default SQLite file path (`workspace/visionforge.db`).
+- `VISIONFORGE_STORAGE_MODE`: persistence strategy (`json`, `dual`, `sqlite`).
+
+Manual migration command:
+
+```bash
+python -m engine.db.migrator
+```
+
 ### Health Check
 
 ```bash

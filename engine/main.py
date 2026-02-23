@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from engine.api import endpoints, websocket, runs, run_actions, projects, datasets, variants, inference, settings
+from engine.db import bootstrap_database, get_storage_mode
 from engine.services.heartbeat import start_heartbeat_service
 from engine.orchestrator import orchestrator
 from engine.io import paths
@@ -46,6 +47,18 @@ async def lifespan(app: FastAPI):
     logger.info("Workspace root: %s", paths.get_workspace_root())
     logger.info("CWD: %s", os.getcwd())
     logger.info("Python executable: %s", sys.executable)
+    bootstrap_result = bootstrap_database()
+    logger.info(
+        "SQLite ready at %s (storage_mode=%s, migrations_applied=%d)",
+        bootstrap_result.db_path,
+        get_storage_mode(),
+        len(bootstrap_result.applied),
+    )
+    if bootstrap_result.applied:
+        logger.info(
+            "Applied migrations: %s",
+            ", ".join(str(migration.version) for migration in bootstrap_result.applied),
+        )
     heartbeat_task = None
     try:
         heartbeat_task = asyncio.create_task(start_heartbeat_service())
