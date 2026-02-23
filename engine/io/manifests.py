@@ -95,6 +95,19 @@ def _touch_marker(path: Path) -> None:
     normalized.touch(exist_ok=True)
 
 
+def _read_legacy_json(path: Path) -> Optional[Dict[str, Any]]:
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
 def load_schema(schema_name: str) -> Dict[str, Any]:
     schema_path = SCHEMAS_DIR / f"{schema_name}.json"
     if not schema_path.exists():
@@ -114,17 +127,17 @@ def validate(data: Dict[str, Any], schema_name: str):
 
 def manifest_exists(path: Path) -> bool:
     normalized = _normalize_path(path)
-    if normalized.exists():
+    data = _fetch_from_sqlite(normalized)
+    if data is not None:
+        # Keep filesystem semantics for callers that enumerate/guard by path existence.
+        if normalized.parent.exists() and not normalized.exists():
+            _touch_marker(normalized)
         return True
 
-    data = _fetch_from_sqlite(normalized)
-    if data is None:
+    legacy = _read_legacy_json(normalized)
+    if legacy is None:
         return False
-
-    # Keep filesystem semantics for callers that enumerate/guard by path existence.
-    if not normalized.parent.exists():
-        return False
-    _touch_marker(normalized)
+    _upsert_to_sqlite(normalized, legacy, schema_name=None)
     return True
 
 
@@ -144,13 +157,9 @@ def load_manifest(path: Path) -> Dict[str, Any]:
             _touch_marker(normalized)
         return from_sqlite
 
-    if not normalized.exists():
-        raise FileNotFoundError(f"Manifest not found: {normalized}")
-
-    with open(normalized, "r") as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
-        raise ValueError(f"Invalid manifest file {normalized}: expected object JSON.")
+    data = _read_legacy_json(normalized)
+    if data is None:
+        raise FileNotFoundError(f"Manifest not found in SQLite (and no legacy JSON fallback): {normalized}")
 
     # Lazy migration path: first legacy read imports into SQLite.
     _upsert_to_sqlite(normalized, data, schema_name=None)
