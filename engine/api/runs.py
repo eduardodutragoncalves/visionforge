@@ -11,6 +11,7 @@ from pathlib import Path
 
 from engine.orchestrator.core import orchestrator
 from engine.io import paths, manifests
+from engine.services.sqlite_cache_service import sqlite_cache_service
 
 router = APIRouter()
 
@@ -82,8 +83,15 @@ async def create_run(project_id: str, request: CreateRunRequest):
 @router.get("/projects/{project_id}/runs")
 async def list_runs(project_id: str) -> List[Dict[str, Any]]:
     orchestrator.reconcile_stale_runs(project_id=project_id)
+    cache_key = f"api:runs:list:v1:{project_id}"
+    signature = sqlite_cache_service.runs_signature(project_id)
+    cached_payload = sqlite_cache_service.get_payload(cache_key, signature)
+    if isinstance(cached_payload, list):
+        return cached_payload
+
     runs_dir = paths.get_runs_dir(project_id)
     if not runs_dir.exists():
+        sqlite_cache_service.set_payload(cache_key, signature, [])
         return []
     runs: List[Dict[str, Any]] = []
     for run_dir in runs_dir.iterdir():
@@ -96,7 +104,9 @@ async def list_runs(project_id: str) -> List[Dict[str, Any]]:
             runs.append(manifests.load_manifest(run_json))
         except Exception:
             continue
-    return sorted(runs, key=lambda item: item.get("created_at", ""), reverse=True)
+    payload = sorted(runs, key=lambda item: item.get("created_at", ""), reverse=True)
+    sqlite_cache_service.set_payload(cache_key, signature, payload)
+    return payload
 
 @router.get("/projects/{project_id}/runs/{run_id}")
 async def get_run(project_id: str, run_id: str):

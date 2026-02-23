@@ -7,6 +7,7 @@ import asyncio
 
 from engine.io import paths, manifests
 from engine.core.events import manager
+from engine.services.sqlite_cache_service import sqlite_cache_service
 
 router = APIRouter()
 
@@ -93,8 +94,15 @@ def _attach_stats(data: dict) -> dict:
 
 @router.get("/projects", response_model=List[ProjectResponse])
 async def list_projects():
+    cache_key = "api:projects:list:v1"
+    signature = sqlite_cache_service.projects_signature()
+    cached_payload = sqlite_cache_service.get_payload(cache_key, signature)
+    if isinstance(cached_payload, list):
+        return cached_payload
+
     projects_root = paths.get_projects_root()
     if not projects_root.exists():
+        sqlite_cache_service.set_payload(cache_key, signature, [])
         return []
     
     projects = []
@@ -110,7 +118,9 @@ async def list_projects():
                 except Exception as e:
                     print(f"Skipping invalid project {project_dir}: {e}")
     
-    return sorted(projects, key=lambda x: x["created_at"], reverse=True)
+    payload = sorted(projects, key=lambda x: x["created_at"], reverse=True)
+    sqlite_cache_service.set_payload(cache_key, signature, payload)
+    return payload
 
 @router.post("/projects", response_model=ProjectResponse)
 async def create_project(request: CreateProjectRequest):

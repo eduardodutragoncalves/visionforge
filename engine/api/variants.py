@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from engine.io import paths, manifests
 from engine.orchestrator.core import orchestrator
 from engine.services.inference_history import inference_history_service
+from engine.services.sqlite_cache_service import sqlite_cache_service
 
 router = APIRouter()
 
@@ -30,8 +31,15 @@ class DeployRequest(BaseModel):
 
 @router.get("/projects/{project_id}/variants")
 async def list_variants(project_id: str):
+    cache_key = f"api:variants:list:v1:{project_id}"
+    signature = sqlite_cache_service.variants_signature(project_id)
+    cached_payload = sqlite_cache_service.get_payload(cache_key, signature)
+    if isinstance(cached_payload, list):
+        return cached_payload
+
     variants_root = paths.get_variants_dir(project_id)
     if not variants_root.exists():
+        sqlite_cache_service.set_payload(cache_key, signature, [])
         return []
 
     validation_summary = inference_history_service.summarize_validation_by_variant(project_id)
@@ -100,7 +108,9 @@ async def list_variants(project_id: str):
                     variants.append(data)
                 except Exception:
                     pass
-    return sorted(variants, key=lambda item: item.get("created_at", ""), reverse=True)
+    payload = sorted(variants, key=lambda item: item.get("created_at", ""), reverse=True)
+    sqlite_cache_service.set_payload(cache_key, signature, payload)
+    return payload
     
 @router.post("/variants/{variant_id}/export")
 async def export_variant(variant_id: str, format: str = "onnx", project_id: str = "p1"): # project_id hack if not passed
