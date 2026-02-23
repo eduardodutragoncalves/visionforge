@@ -9,6 +9,8 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
+from engine.io import manifests
+
 # Redirect stdout to ensure we catch everything, though we will print specifically for events
 # We need to ensure we don't mix up Ultralytics logs with our JSON events if possible
 # Ultralytics logs to stdout/stderr. We will use a unique prefix VF_EVENT:
@@ -120,10 +122,9 @@ def main():
 
     def load_selected_image_ids(manifest_path: Path, version_id: str):
         versions_manifest_path = manifest_path.parent / "dataset_versions.json"
-        if not versions_manifest_path.exists():
+        if not manifests.manifest_exists(versions_manifest_path):
             raise ValueError(f"Dataset version {version_id} was selected but dataset_versions.json was not found")
-        with open(versions_manifest_path, "r") as f:
-            payload = json.load(f)
+        payload = manifests.load_manifest(versions_manifest_path)
         versions = payload.get("versions", []) if isinstance(payload, dict) else []
         for version in versions:
             if not isinstance(version, dict):
@@ -148,10 +149,9 @@ def main():
         raise ValueError(f"Dataset version {version_id} not found")
 
     def build_classification_dataset(manifest_path: Path, output_dir: Path, selected_image_ids=None) -> Path:
-        if not manifest_path.exists():
+        if not manifests.manifest_exists(manifest_path):
             raise ValueError("Dataset manifest not found for classification")
-        with open(manifest_path, "r") as f:
-            dataset = json.load(f)
+        dataset = manifests.load_manifest(manifest_path)
         classes = dataset.get("classes", [])
         images = dataset.get("images", [])
         if selected_image_ids:
@@ -202,10 +202,9 @@ def main():
         return output_dir
 
     def build_detection_dataset(manifest_path: Path, output_dir: Path, selected_image_ids=None):
-        if not manifest_path.exists():
+        if not manifests.manifest_exists(manifest_path):
             raise ValueError("Dataset manifest not found for detection")
-        with open(manifest_path, "r") as f:
-            dataset = json.load(f)
+        dataset = manifests.load_manifest(manifest_path)
 
         classes = dataset.get("classes", [])
         images = dataset.get("images", [])
@@ -396,7 +395,7 @@ def main():
     manifest_path = Path(args.dataset_manifest) if args.dataset_manifest else None
     selected_version_id = str(args.dataset_version_id or "").strip()
     if selected_version_id:
-        if not manifest_path or not manifest_path.exists():
+        if not manifest_path or not manifests.manifest_exists(manifest_path):
             raise ValueError("Dataset version requires a valid dataset manifest")
         selected_image_ids = load_selected_image_ids(manifest_path, selected_version_id)
 
@@ -420,7 +419,7 @@ def main():
         val_path = detection_root / "valid" / "images"
         test_path = detection_root / "test" / "images"
 
-        if manifest_path and manifest_path.exists():
+        if manifest_path and manifests.manifest_exists(manifest_path):
             detection_root, detection_class_names = build_detection_dataset(
                 manifest_path,
                 run_dir / "det_dataset",

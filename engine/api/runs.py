@@ -3,7 +3,6 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 import uuid
 import os
-import json
 import shutil
 from datetime import datetime
 import re
@@ -66,9 +65,8 @@ async def create_run(project_id: str, request: CreateRunRequest):
         "created_at": datetime.now().isoformat(),
         "config": request.config
     }
-    
-    with open(os.path.join(run_dir, "run.json"), "w") as f:
-        json.dump(run_metadata, f, indent=2)
+
+    manifests.save_manifest(Path(run_dir) / "run.json", run_metadata, "run")
     
     # Submit to Orchestrator
     await orchestrator.submit_job(project_id, run_id, request.config)
@@ -98,7 +96,7 @@ async def list_runs(project_id: str) -> List[Dict[str, Any]]:
         if not run_dir.is_dir():
             continue
         run_json = run_dir / "run.json"
-        if not run_json.exists():
+        if not manifests.manifest_exists(run_json):
             continue
         try:
             runs.append(manifests.load_manifest(run_json))
@@ -111,13 +109,12 @@ async def list_runs(project_id: str) -> List[Dict[str, Any]]:
 @router.get("/projects/{project_id}/runs/{run_id}")
 async def get_run(project_id: str, run_id: str):
     run_dir = os.path.join(orchestrator.workspace_root, "projects", project_id, "runs", run_id)
-    json_path = os.path.join(run_dir, "run.json")
-    
-    if not os.path.exists(json_path):
+    manifest_path = Path(run_dir) / "run.json"
+
+    if not manifests.manifest_exists(manifest_path):
         raise HTTPException(status_code=404, detail="Run not found")
-        
-    with open(json_path, "r") as f:
-        return json.load(f)
+
+    return manifests.load_manifest(manifest_path)
 
 @router.delete("/projects/{project_id}/runs/{run_id}")
 async def delete_run(project_id: str, run_id: str):
@@ -154,6 +151,7 @@ async def delete_run(project_id: str, run_id: str):
 
     # Remove run artifacts last, so we only lose the run once linked artifacts are cleared.
     shutil.rmtree(run_dir, ignore_errors=False)
+    manifests.delete_manifests_under(Path(run_dir))
 
     project_manifest = paths.get_project_dir(project_id) / "project.json"
     if project_manifest.exists():

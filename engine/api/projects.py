@@ -212,6 +212,11 @@ async def delete_project(project_id: str):
             pass
         deleted += 1
 
+        try:
+            manifests.delete_manifests_under(project_dir)
+        except Exception:
+            pass
+
         await manager.broadcast("project/delete_progress", {
             "project_id": project_id,
             "status": "completed",

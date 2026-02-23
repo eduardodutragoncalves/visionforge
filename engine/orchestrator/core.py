@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import sys
+from pathlib import Path
 from typing import Any, Dict, Optional, Set
 from datetime import datetime
 
@@ -217,11 +218,11 @@ class Orchestrator:
         metrics_path = os.path.join(run_dir, "metrics.jsonl")
         run_json_path = os.path.join(run_dir, "run.json")
         run_name = None
-        if os.path.exists(run_json_path):
+        run_manifest_path = Path(run_json_path)
+        if manifests.manifest_exists(run_manifest_path):
             try:
-                with open(run_json_path, "r") as f:
-                    run_data = json.load(f)
-                    run_name = run_data.get("name") or run_data.get("run_name")
+                run_data = manifests.load_manifest(run_manifest_path)
+                run_name = run_data.get("name") or run_data.get("run_name")
             except Exception:
                 run_name = None
 
@@ -259,7 +260,7 @@ class Orchestrator:
                  "segmentation": "segment",
              }
              dataset_manifest_path = paths.get_dataset_manifest_path(project_id)
-             if dataset_manifest_path.exists():
+             if manifests.manifest_exists(dataset_manifest_path):
                  try:
                      dataset = manifests.load_manifest(dataset_manifest_path)
                      raw_task = str(dataset.get("task") or dataset_task).strip().lower()
@@ -268,12 +269,11 @@ class Orchestrator:
                  except Exception:
                      dataset_path = None
 
-             if os.path.exists(project_json_path):
-                 with open(project_json_path, 'r') as f:
-                     p_data = json.load(f)
-                     datasets = p_data.get("datasets", [])
-                     if datasets:
-                         dataset_path = datasets[0]
+             if manifests.manifest_exists(Path(project_json_path)):
+                 p_data = manifests.load_manifest(Path(project_json_path))
+                 datasets = p_data.get("datasets", [])
+                 if datasets:
+                     dataset_path = datasets[0]
             
              if not dataset_path:
                  self._update_run_status(run_json_path, "failed")
@@ -689,19 +689,18 @@ class Orchestrator:
             manifests.save_manifest(deployment_manifest_path, deployment_manifest, "deployment")
 
     def _update_run_status(self, file_path: str, status: str, updates: Optional[Dict] = None):
-        if os.path.exists(file_path):
-            with open(file_path, "r") as f:
-                data = json.load(f)
+        manifest_path = Path(file_path)
+        if manifests.manifest_exists(manifest_path):
+            data = manifests.load_manifest(manifest_path)
         else:
             data = {}
-        
+
         data["status"] = status
         data["updated_at"] = datetime.now().isoformat()
         if updates:
             data.update(updates)
-        
-        with open(file_path, "w") as f:
-            json.dump(data, f, indent=2)
+
+        manifests.save_manifest(manifest_path, data)
 
     async def _handle_job_failure(self, job, error_msg):
         # Fallback to ensure run.json is updated if python crash
@@ -743,11 +742,11 @@ class Orchestrator:
                 continue
             for run_dir_name in os.listdir(runs_root):
                 run_json_path = os.path.join(runs_root, run_dir_name, "run.json")
-                if not os.path.isfile(run_json_path):
+                manifest_path = Path(run_json_path)
+                if not manifests.manifest_exists(manifest_path):
                     continue
                 try:
-                    with open(run_json_path, "r") as f:
-                        data = json.load(f)
+                    data = manifests.load_manifest(manifest_path)
                 except Exception:
                     continue
 
@@ -766,8 +765,7 @@ class Orchestrator:
                     data["error"] = f"Recovered stale run after engine restart ({previous})."
                 data["updated_at"] = now
                 try:
-                    with open(run_json_path, "w") as f:
-                        json.dump(data, f, indent=2)
+                    manifests.save_manifest(manifest_path, data)
                     repaired += 1
                 except Exception:
                     continue

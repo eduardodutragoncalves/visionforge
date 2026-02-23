@@ -883,8 +883,7 @@ class DatasetService:
         
         # Save Report
         project_dir = paths.get_project_dir(project_id)
-        with open(project_dir / "dataset_report.json", "w") as f:
-            json.dump(final_report, f, indent=2)
+        manifests.save_manifest(project_dir / "dataset_report.json", final_report)
             
         with open(project_dir / "dataset_hash.txt", "w") as f:
             f.write(final_report["dataset_hash"])
