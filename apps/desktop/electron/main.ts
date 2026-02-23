@@ -30,6 +30,7 @@ let engineOwned = false
 
 const ENGINE_HEALTH_URL = process.env.VISIONFORGE_ENGINE_URL || 'http://127.0.0.1:8000/health'
 const ENGINE_PYTHON = process.env.VISIONFORGE_PYTHON || 'python'
+const ENGINE_PORT = process.env.VISIONFORGE_ENGINE_PORT || '8000'
 const resolveEngineCwd = () => {
     if (process.env.VISIONFORGE_ENGINE_CWD) {
         return process.env.VISIONFORGE_ENGINE_CWD
@@ -50,11 +51,22 @@ const isEngineRunning = () => new Promise<boolean>((resolve) => {
         res.resume()
     })
     req.on('error', () => resolve(false))
-    req.setTimeout(500, () => {
+    req.setTimeout(2500, () => {
         req.destroy()
         resolve(false)
     })
 })
+
+const cleanupUnhealthyEngine = async () => {
+    if (process.platform === 'win32') return
+    await new Promise<void>((resolve) => {
+        const killer = spawn('pkill', ['-f', `uvicorn engine.main:app --port ${ENGINE_PORT}`], {
+            stdio: 'ignore'
+        })
+        killer.on('error', () => resolve())
+        killer.on('exit', () => resolve())
+    })
+}
 
 const startEngine = async () => {
     const running = await isEngineRunning()
@@ -63,10 +75,15 @@ const startEngine = async () => {
         return
     }
 
-    const args = ['-m', 'uvicorn', 'engine.main:app', '--port', '8000']
-    if (process.env.VITE_DEV_SERVER_URL) {
-        args.push('--reload')
+    await cleanupUnhealthyEngine()
+
+    const becameHealthyAfterCleanup = await isEngineRunning()
+    if (becameHealthyAfterCleanup) {
+        engineOwned = false
+        return
     }
+
+    const args = ['-m', 'uvicorn', 'engine.main:app', '--port', ENGINE_PORT]
 
     engineProcess = spawn(ENGINE_PYTHON, args, {
         cwd: ENGINE_CWD,

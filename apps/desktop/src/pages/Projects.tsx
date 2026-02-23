@@ -36,6 +36,17 @@ interface DeleteState {
 
 const API_BASE_URL = ENGINE_HTTP_URL;
 type ProjectTypeFilter = 'all' | 'classification' | 'detection';
+const PROJECTS_LOAD_TIMEOUT_MS = 12000;
+
+const fetchWithTimeout = async (url: string, timeoutMs = PROJECTS_LOAD_TIMEOUT_MS) => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { signal: controller.signal });
+    } finally {
+        window.clearTimeout(timer);
+    }
+};
 
 const normalizeAnalysisType = (type: Project['analysis_type']): 'classification' | 'detection' =>
     type === 'detection' ? 'detection' : 'classification';
@@ -78,14 +89,18 @@ export const Projects = () => {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(`${API_BASE_URL}/projects`);
+            const res = await fetchWithTimeout(`${API_BASE_URL}/projects`);
             if (!res.ok) {
                 throw new Error('Failed to load projects.');
             }
             const data = await res.json();
-            setProjects(data);
+            setProjects(Array.isArray(data) ? data : []);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load projects.');
+            if (err instanceof DOMException && err.name === 'AbortError') {
+                setError('Projects request timed out. Check backend connectivity and try again.');
+            } else {
+                setError(err instanceof Error ? err.message : 'Failed to load projects.');
+            }
         } finally {
             setLoading(false);
         }

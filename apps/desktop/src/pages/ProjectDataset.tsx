@@ -265,12 +265,24 @@ const formatElapsedSeconds = (seconds: number) => {
     return `${minutes}m ${String(remaining).padStart(2, '0')}s`;
 };
 
+const readErrorMessage = async (response: Response, fallback: string) => {
+    try {
+        const payload = await response.json();
+        const detail = String(payload?.detail || '').trim();
+        return detail || fallback;
+    } catch {
+        const text = await response.text().catch(() => '');
+        return String(text || fallback).trim() || fallback;
+    }
+};
+
 export const ProjectDataset = () => {
     const navigate = useNavigate();
     const { projectId } = useParams();
     const [dataset, setDataset] = useState<Dataset | null>(null);
     const [images, setImages] = useState<DatasetImage[]>([]);
     const [loading, setLoading] = useState(true);
+    const [datasetError, setDatasetError] = useState<string | null>(null);
     const [ingesting, setIngesting] = useState(false);
     const [scanProgress, setScanProgress] = useState<any>(null);
     const [validationReport, setValidationReport] = useState<ValidationReport | null>(null);
@@ -1418,6 +1430,7 @@ export const ProjectDataset = () => {
         setPendingCount(0);
         setSaveStatus('idle');
         setSaveError(null);
+        setDatasetError(null);
         setScanProgress(null);
         setValidationReport(null);
         setValidationElapsedSec(0);
