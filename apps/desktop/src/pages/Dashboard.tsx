@@ -7,6 +7,7 @@ import {
     Cpu,
     FolderOpen,
     LayoutGrid,
+    Loader2,
     PlayCircle,
     RefreshCcw
 } from 'lucide-react';
@@ -86,39 +87,66 @@ export const Dashboard = () => {
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+    const [projectsReady, setProjectsReady] = useState(false);
+    const [capabilitiesReady, setCapabilitiesReady] = useState(false);
 
     const loadDashboard = useCallback(async (background = false) => {
         if (background) {
             setRefreshing(true);
         } else {
             setLoading(true);
+            setProjectsReady(false);
+            setCapabilitiesReady(false);
         }
         setError(null);
+
+        let requestError: string | null = null;
         try {
-            const [projectsRes, capabilitiesRes] = await Promise.all([
-                fetchWithTimeout(`${ENGINE_HTTP_URL}/projects`),
-                fetchWithTimeout(`${ENGINE_HTTP_URL}/capabilities`)
-            ]);
+            const projectsPromise = (async () => {
+                try {
+                    const projectsRes = await fetchWithTimeout(`${ENGINE_HTTP_URL}/projects`);
+                    if (!projectsRes.ok) {
+                        throw new Error('Failed to load project overview.');
+                    }
+                    const projectsData = await projectsRes.json();
+                    setProjects(Array.isArray(projectsData) ? projectsData : []);
+                } catch (err) {
+                    if (err instanceof DOMException && err.name === 'AbortError') {
+                        requestError = 'Dashboard request timed out. Check backend connectivity and try refresh.';
+                    } else {
+                        requestError = err instanceof Error ? err.message : 'Failed to load dashboard information.';
+                    }
+                    setProjects([]);
+                } finally {
+                    if (!background) setProjectsReady(true);
+                }
+            })();
 
-            if (!projectsRes.ok) {
-                throw new Error('Failed to load project overview.');
-            }
-            const projectsData = await projectsRes.json();
-            setProjects(Array.isArray(projectsData) ? projectsData : []);
+            const capabilitiesPromise = (async () => {
+                try {
+                    const capabilitiesRes = await fetchWithTimeout(`${ENGINE_HTTP_URL}/capabilities`);
+                    if (capabilitiesRes.ok) {
+                        const capabilitiesData = await capabilitiesRes.json();
+                        setCapabilities(capabilitiesData);
+                    } else {
+                        setCapabilities(null);
+                    }
+                } catch {
+                    setCapabilities(null);
+                } finally {
+                    if (!background) setCapabilitiesReady(true);
+                }
+            })();
 
-            if (capabilitiesRes.ok) {
-                const capabilitiesData = await capabilitiesRes.json();
-                setCapabilities(capabilitiesData);
+            await Promise.all([projectsPromise, capabilitiesPromise]);
+
+            if (requestError) {
+                setError(requestError);
             } else {
-                setCapabilities(null);
+                setLastSyncAt(new Date().toISOString());
             }
-            setLastSyncAt(new Date().toISOString());
-        } catch (err) {
-            if (err instanceof DOMException && err.name === 'AbortError') {
-                setError('Dashboard request timed out. Check backend connectivity and try refresh.');
-            } else {
-                setError(err instanceof Error ? err.message : 'Failed to load dashboard information.');
-            }
+        } catch {
+            setError('Failed to load dashboard information.');
         } finally {
             if (!background) {
                 setLoading(false);
@@ -196,6 +224,17 @@ export const Dashboard = () => {
     );
 
     const firstProject = projects[0];
+    const pendingSections = Number(!projectsReady) + Number(!capabilitiesReady);
+    const loadingLabel = pendingSections >= 2
+        ? 'Loading project overview and engine capabilities...'
+        : !projectsReady
+            ? 'Loading project overview...'
+            : 'Loading engine capabilities...';
+    const statusLabel = error
+        ? error
+        : loading
+            ? loadingLabel
+            : 'Dashboard synced with engine endpoints.';
 
     return (
         <div className="animate-fade-in space-y-6">
@@ -237,9 +276,15 @@ export const Dashboard = () => {
                     </div>
                 </div>
                 <div className="flex items-center justify-between text-xs text-secondary">
-                    <span>{error ? error : 'Dashboard synced with engine endpoints.'}</span>
+                    <span>{statusLabel}</span>
                     <span>Last update: {toLocaleDate(lastSyncAt)}</span>
                 </div>
+                {loading && (
+                    <div className="inline-flex items-center gap-2 rounded-xl border border-graphite-700/70 bg-graphite-900/70 px-3 py-2 text-[11px] uppercase tracking-[0.25em] text-secondary">
+                        <Loader2 size={12} className="animate-spin" />
+                        <span>{loadingLabel}</span>
+                    </div>
+                )}
                 <div className="relative h-[2px] bg-graphite-700">
                     <span className="absolute left-0 -top-[3px] h-[6px] w-24 bg-accent-primary" />
                 </div>
@@ -286,28 +331,32 @@ export const Dashboard = () => {
                     <div className="flex items-start justify-between gap-3">
                         <div>
                             <div className="text-secondary text-xs uppercase tracking-[0.3em]">Projects</div>
-                            <div className="mt-2 text-xl font-semibold">{formatNumber(totals.projects)}</div>
+                            <div className="mt-2 text-xl font-semibold">{loading ? '...' : formatNumber(totals.projects)}</div>
                         </div>
                         <LayoutGrid className="text-accent-primary" size={20} />
                     </div>
                     <div className="mt-2 text-xs text-secondary">
-                        Classification: {formatNumber(totals.classification)} | Detection: {formatNumber(totals.detection)}
+                        {loading
+                            ? 'Syncing project totals...'
+                            : `Classification: ${formatNumber(totals.classification)} | Detection: ${formatNumber(totals.detection)}`}
                     </div>
-                    <div className="mt-1 text-xs text-secondary">Total runs: {formatNumber(totals.runs)}</div>
+                    <div className="mt-1 text-xs text-secondary">{loading ? 'Calculating runs...' : `Total runs: ${formatNumber(totals.runs)}`}</div>
                 </Card>
 
                 <Card>
                     <div className="flex items-start justify-between gap-3">
                         <div>
                             <div className="text-secondary text-xs uppercase tracking-[0.3em]">Label Coverage</div>
-                            <div className="mt-2 text-xl font-semibold">{formatPercent(labeledPct)}</div>
+                            <div className="mt-2 text-xl font-semibold">{loading ? '...' : formatPercent(labeledPct)}</div>
                         </div>
                         <CheckCircle2 className="text-accent-primary" size={20} />
                     </div>
                     <div className="mt-2 text-xs text-secondary">
-                        Labeled images: {formatNumber(totals.labeled)} / {formatNumber(totals.images)}
+                        {loading
+                            ? 'Syncing labels...'
+                            : `Labeled images: ${formatNumber(totals.labeled)} / ${formatNumber(totals.images)}`}
                     </div>
-                    <div className="mt-1 text-xs text-secondary">Total annotations: {formatNumber(totals.labels)}</div>
+                    <div className="mt-1 text-xs text-secondary">{loading ? 'Calculating annotations...' : `Total annotations: ${formatNumber(totals.labels)}`}</div>
                 </Card>
             </div>
 
