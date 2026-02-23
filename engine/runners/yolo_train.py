@@ -9,6 +9,10 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from engine.io import manifests
 
 # Redirect stdout to ensure we catch everything, though we will print specifically for events
