@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import uuid
 from datetime import datetime
 import asyncio
@@ -37,32 +37,83 @@ def _normalize_project(data: dict) -> dict:
         data["analysis_type"] = "classification"
     return data
 
-def _compute_project_stats(project_id: str, analysis_type: str) -> dict:
+
+def _compute_dataset_stats(project_id: str, analysis_type: str) -> Dict[str, Any]:
     stats = {
         "images_total": 0,
         "labeled_images": 0,
         "labels_total": 0,
         "classes_total": 0,
         "sources_total": 0,
-        "runs_total": 0,
-        "last_run_at": None
     }
 
     dataset_path = paths.get_dataset_manifest_path(project_id)
-    if dataset_path.exists():
+    if not manifests.manifest_exists(dataset_path):
+        return stats
+
+    dataset_stats_path = paths.get_project_dir(project_id) / "dataset_stats.json"
+    dataset_mtime_ns = 0
+    try:
+        dataset_mtime_ns = int(dataset_path.stat().st_mtime_ns)
+    except Exception:
+        dataset_mtime_ns = 0
+
+    if dataset_mtime_ns > 0 and manifests.manifest_exists(dataset_stats_path):
         try:
-            dataset = manifests.load_manifest(dataset_path)
-            images = dataset.get("images", [])
-            stats["images_total"] = len(images)
-            stats["classes_total"] = len(dataset.get("classes", []))
-            stats["sources_total"] = len(dataset.get("sources", []))
-            task = dataset.get("task") or analysis_type
-            if task == "detection":
-                stats["labeled_images"] = sum(1 for image in images if image.get("boxes"))
-                stats["labels_total"] = sum(len(image.get("boxes", [])) for image in images)
-            else:
-                stats["labeled_images"] = sum(1 for image in images if image.get("labels"))
-                stats["labels_total"] = sum(len(image.get("labels", [])) for image in images)
+            cached = manifests.load_manifest(dataset_stats_path)
+            if int(cached.get("source_mtime_ns", 0) or 0) == dataset_mtime_ns:
+                return {
+                    "images_total": int(cached.get("images_total", 0) or 0),
+                    "labeled_images": int(cached.get("labeled_images", 0) or 0),
+                    "labels_total": int(cached.get("labels_total", 0) or 0),
+                    "classes_total": int(cached.get("classes_total", 0) or 0),
+                    "sources_total": int(cached.get("sources_total", 0) or 0),
+                }
+        except Exception:
+            pass
+
+    try:
+        dataset = manifests.load_manifest(dataset_path)
+        images = dataset.get("images", [])
+        stats["images_total"] = len(images)
+        stats["classes_total"] = len(dataset.get("classes", []))
+        stats["sources_total"] = len(dataset.get("sources", []))
+        task = dataset.get("task") or analysis_type
+        if task == "detection":
+            stats["labeled_images"] = sum(1 for image in images if image.get("boxes"))
+            stats["labels_total"] = sum(len(image.get("boxes", [])) for image in images)
+        else:
+            stats["labeled_images"] = sum(1 for image in images if image.get("labels"))
+            stats["labels_total"] = sum(len(image.get("labels", [])) for image in images)
+
+        if dataset_mtime_ns > 0:
+            manifests.save_manifest(dataset_stats_path, {
+                "source_mtime_ns": dataset_mtime_ns,
+                "images_total": stats["images_total"],
+                "labeled_images": stats["labeled_images"],
+                "labels_total": stats["labels_total"],
+                "classes_total": stats["classes_total"],
+                "sources_total": stats["sources_total"],
+                "updated_at": datetime.now().isoformat(),
+            })
+    except Exception:
+        pass
+    return stats
+
+
+def _compute_run_stats(project_id: str) -> Dict[str, Any]:
+    stats = {"runs_total": 0, "last_run_at": None}
+    runs_signature = sqlite_cache_service.runs_signature(project_id)
+    run_stats_path = paths.get_project_dir(project_id) / "runs_stats.json"
+
+    if manifests.manifest_exists(run_stats_path):
+        try:
+            cached = manifests.load_manifest(run_stats_path)
+            if str(cached.get("runs_signature", "")) == runs_signature:
+                return {
+                    "runs_total": int(cached.get("runs_total", 0) or 0),
+                    "last_run_at": cached.get("last_run_at")
+                }
         except Exception:
             pass
 
@@ -73,7 +124,7 @@ def _compute_project_stats(project_id: str, analysis_type: str) -> dict:
             if not run_dir.is_dir():
                 continue
             run_json = run_dir / "run.json"
-            if not run_json.exists():
+            if not manifests.manifest_exists(run_json):
                 continue
             try:
                 run_data = manifests.load_manifest(run_json)
@@ -85,6 +136,31 @@ def _compute_project_stats(project_id: str, analysis_type: str) -> dict:
                 continue
         if run_times:
             stats["last_run_at"] = sorted(run_times)[-1]
+
+    manifests.save_manifest(run_stats_path, {
+        "runs_signature": runs_signature,
+        "runs_total": stats["runs_total"],
+        "last_run_at": stats["last_run_at"],
+        "updated_at": datetime.now().isoformat(),
+    })
+    return stats
+
+
+def _compute_project_stats(project_id: str, analysis_type: str) -> dict:
+    stats = {
+        "images_total": 0,
+        "labeled_images": 0,
+        "labels_total": 0,
+        "classes_total": 0,
+        "sources_total": 0,
+        "runs_total": 0,
+        "last_run_at": None
+    }
+
+    dataset_stats = _compute_dataset_stats(project_id, analysis_type)
+    run_stats = _compute_run_stats(project_id)
+    stats.update(dataset_stats)
+    stats.update(run_stats)
 
     return stats
 
@@ -110,7 +186,7 @@ async def list_projects():
     for project_dir in projects_root.iterdir():
         if project_dir.is_dir():
             manifest_path = project_dir / "project.json"
-            if manifest_path.exists():
+            if manifests.manifest_exists(manifest_path):
                 try:
                     data = manifests.load_manifest(manifest_path)
                     normalized = _normalize_project(data)
@@ -153,7 +229,7 @@ async def get_project(project_id: str):
     project_dir = paths.get_project_dir(project_id)
     manifest_path = project_dir / "project.json"
     
-    if not manifest_path.exists():
+    if not manifests.manifest_exists(manifest_path):
         raise HTTPException(status_code=404, detail="Project not found")
         
     data = manifests.load_manifest(manifest_path)
