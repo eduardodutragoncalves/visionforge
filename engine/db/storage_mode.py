@@ -5,7 +5,7 @@ import os
 
 StorageMode = str
 _VALID_STORAGE_MODES = {"json", "dual", "sqlite"}
-_DEFAULT_STORAGE_MODE = "json"
+_DEFAULT_STORAGE_MODE = "sqlite"
 
 logger = logging.getLogger("VisionForge.StorageMode")
 

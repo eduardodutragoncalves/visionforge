@@ -105,7 +105,7 @@ The engine now bootstraps and applies SQL migrations on startup.
 Optional environment variables:
 
 - `VISIONFORGE_DB_PATH`: override default SQLite file path (`workspace/visionforge.db`).
-- `VISIONFORGE_STORAGE_MODE`: persistence strategy (`json`, `dual`, `sqlite`).
+- `VISIONFORGE_STORAGE_MODE`: persistence strategy (`json`, `dual`, `sqlite`). Default: `sqlite`.
 
 Manual migration command:
 
