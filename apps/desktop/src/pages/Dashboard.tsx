@@ -9,7 +9,6 @@ import {
     FolderOpen,
     LayoutGrid,
     Loader2,
-    PlayCircle,
     RefreshCcw
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
@@ -291,19 +290,6 @@ export const Dashboard = () => {
                         <Button variant="secondary" onClick={() => navigate('/projects')}>
                             <FolderOpen size={14} />
                             Open Projects
-                        </Button>
-                        <Button
-                            variant="primary"
-                            onClick={() => {
-                                if (firstProject?.id) {
-                                    navigate(`/projects/${firstProject.id}/train/setup`);
-                                } else {
-                                    navigate('/projects');
-                                }
-                            }}
-                        >
-                            <PlayCircle size={14} />
-                            Start Training
                         </Button>
                     </div>
                 </div>
