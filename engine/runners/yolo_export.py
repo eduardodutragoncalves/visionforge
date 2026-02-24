@@ -24,21 +24,23 @@ TARGET_LABELS = {
 TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "edge_jetson": {
         "shell": "bash",
-        "venv_create": "python3.10 -m venv .venv 2>/dev/null || python3 -m venv .venv",
+        "venv_create": "python3.8 -m venv .venv 2>/dev/null || python3.10 -m venv .venv 2>/dev/null || python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": (
             "python -m pip install --upgrade pip setuptools wheel && \\\n"
-            "python -m pip install ultralytics opencv-python numpy && \\\n"
+            "python -m pip install ultralytics onnx opencv-python numpy && \\\n"
             "(python -m pip install onnxruntime-gpu || python -m pip install onnxruntime || \\\n"
             "  (echo 'Install NVIDIA ONNX Runtime wheel compatible with your JetPack version before inference.' && false))"
         ),
+        "onnx_opset": 19,
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "script_files": ["run_linux.sh", "validate_linux.sh"],
         "notes": [
             "JetPack version and CUDA stack must match the target device.",
-            "Use the system-supported Python version for your JetPack release (typically 3.8 or 3.10).",
+            "Most Jetson deployments use Python 3.8; use 3.10 only on newer JetPack images that support it.",
             "Do not rely on PyPI `onnxruntime-gpu` on Jetson; install NVIDIA's JetPack-matched ONNX Runtime wheel when required.",
+            "This package exports ONNX with opset 19 for broader Jetson ONNX Runtime compatibility.",
             "For lower latency, consider converting ONNX to TensorRT after functional validation.",
         ],
     },
@@ -710,6 +712,7 @@ def main():
     variant_path = Path(args.variant_path)
     output_dir = Path(args.output_dir)
     package_dir = Path(args.package_dir)
+    profile = _target_profile(args.target_id)
     output_dir.mkdir(parents=True, exist_ok=True)
     package_dir.mkdir(parents=True, exist_ok=True)
     model_path = variant_path / "model.pt"
@@ -731,7 +734,20 @@ def main():
 
         emit_event("export/progress", {"message": f"Exporting to {fmt}...", "stage": "export", "progress": 45})
         start_t = time.time()
-        exported_path = model.export(format=fmt, dynamic=True)
+        export_kwargs: Dict[str, Any] = {"format": fmt, "dynamic": True}
+        if fmt == "onnx":
+            onnx_opset = profile.get("onnx_opset")
+            if isinstance(onnx_opset, int) and onnx_opset > 0:
+                export_kwargs["opset"] = onnx_opset
+                emit_event(
+                    "export/progress",
+                    {
+                        "message": f"Using ONNX opset {onnx_opset} for target compatibility...",
+                        "stage": "export",
+                        "progress": 48,
+                    },
+                )
+        exported_path = model.export(**export_kwargs)
         duration = time.time() - start_t
 
         final_path = Path(exported_path)
