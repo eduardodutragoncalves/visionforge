@@ -936,10 +936,12 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         """
         import argparse
         import json
+        import os
         import time
         from pathlib import Path
         from typing import Any, Dict, List
 
+        os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         import cv2
         from flask import Flask, jsonify, request, send_from_directory
         from ultralytics import YOLO
@@ -955,7 +957,11 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-        MODEL = YOLO(str(MODEL_PATH))
+        MODEL_TASK = "__MODEL_TASK__"
+        DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
+        DEVICE = (os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE).strip() or "cpu"
+        model_kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
+        MODEL = YOLO(str(MODEL_PATH), **model_kwargs)
         APP = Flask(__name__)
         STARTED_AT = time.time()
 
@@ -994,7 +1000,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
         def infer_image(path: Path, conf: float, iou: float) -> Dict[str, Any]:
             started = time.time()
-            results = MODEL.predict(source=str(path), verbose=False, conf=conf, iou=iou)
+            results = MODEL.predict(source=str(path), verbose=False, conf=conf, iou=iou, device=DEVICE)
             if not results:
                 raise RuntimeError("No inference result produced")
             result = results[0]
@@ -1046,7 +1052,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 ok, frame = cap.read()
                 if not ok:
                     break
-                results = MODEL.predict(source=frame, verbose=False, conf=conf, iou=iou)
+                results = MODEL.predict(source=frame, verbose=False, conf=conf, iou=iou, device=DEVICE)
                 if results:
                     first = results[0]
                     if frames == 0:
@@ -1128,11 +1134,14 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
 
         def main():
+            global DEVICE
             parser = argparse.ArgumentParser(description="VisionForge inference server")
             parser.add_argument("--host", default="0.0.0.0")
             parser.add_argument("--port", type=int, default=8090)
+            parser.add_argument("--device", default=DEVICE, help="Inference device, e.g. cpu or cuda:0")
             args = parser.parse_args()
-            print(f"VisionForge inference server running at http://{args.host}:{args.port}")
+            DEVICE = str(args.device).strip() or "cpu"
+            print(f"VisionForge inference server running at http://{args.host}:{args.port} (device={DEVICE})")
             APP.run(host=args.host, port=args.port, debug=False)
 
 
@@ -1146,10 +1155,12 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         """
         import argparse
         import json
+        import os
         import time
         from pathlib import Path
         from urllib.parse import urljoin
 
+        os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         import cv2
         import requests
         from ultralytics import YOLO
@@ -1157,6 +1168,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
         IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
         VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
+        MODEL_TASK = "__MODEL_TASK__"
+        DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
 
 
         def summarize(result):
@@ -1177,8 +1190,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 print(f"  class={result.names[int(box.cls)]} conf={float(box.conf):.4f}")
 
 
-        def infer_image(model, image_path: Path, out_dir: Path, conf: float):
-            results = model.predict(source=str(image_path), verbose=False, conf=conf)
+        def infer_image(model, image_path: Path, out_dir: Path, conf: float, device: str):
+            results = model.predict(source=str(image_path), verbose=False, conf=conf, device=device)
             if not results:
                 raise RuntimeError("No result produced for image")
             result = results[0]
@@ -1189,7 +1202,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             return out_path
 
 
-        def infer_video(model, video_path: Path, out_dir: Path, conf: float):
+        def infer_video(model, video_path: Path, out_dir: Path, conf: float, device: str):
             cap = cv2.VideoCapture(str(video_path))
             if not cap.isOpened():
                 raise RuntimeError(f"Could not open video: {video_path}")
@@ -1215,7 +1228,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 ok, frame = cap.read()
                 if not ok:
                     break
-                results = model.predict(source=frame, verbose=False, conf=conf)
+                results = model.predict(source=frame, verbose=False, conf=conf, device=device)
                 if results:
                     writer.write(results[0].plot())
                 else:
@@ -1269,6 +1282,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             parser.add_argument("--iou", type=float, default=0.7, help="IoU threshold")
             parser.add_argument("--server-url", default="", help="Optional inference server URL, e.g. http://127.0.0.1:8090")
             parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds for server mode")
+            parser.add_argument("--device", default=(os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE), help="Inference device for local mode, e.g. cpu or cuda:0")
             args = parser.parse_args()
 
             package_dir = Path(__file__).resolve().parent
@@ -1295,13 +1309,15 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             model_path = (package_dir / args.model).resolve()
             if not model_path.exists():
                 raise FileNotFoundError(f"Model not found: {model_path}")
-            model = YOLO(str(model_path))
+            kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
+            model = YOLO(str(model_path), **kwargs)
+            device = str(args.device).strip() or "cpu"
             suffix = source_path.suffix.lower()
             if suffix in IMAGE_EXTENSIONS:
-                out_path = infer_image(model, source_path, out_dir, args.conf)
+                out_path = infer_image(model, source_path, out_dir, args.conf, device)
                 print(f"Annotated image saved: {out_path}")
             elif suffix in VIDEO_EXTENSIONS:
-                out_path, frames = infer_video(model, source_path, out_dir, args.conf)
+                out_path, frames = infer_video(model, source_path, out_dir, args.conf, device)
                 print(f"Annotated video saved: {out_path}")
                 print(f"Frames processed: {frames}")
             else:
