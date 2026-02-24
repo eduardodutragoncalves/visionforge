@@ -203,6 +203,18 @@ def _target_profile(target_id: str) -> Dict[str, Any]:
     return TARGET_PROFILES.get(target_id, fallback)
 
 
+def _venv_python_cmd(shell: str) -> str:
+    return ".\\.venv\\Scripts\\python.exe" if shell == "powershell" else "./.venv/bin/python"
+
+
+def _venv_install_cmd(profile: Dict[str, Any], shell: str) -> str:
+    install_cmd = str(profile.get("install_cmd", "python -m pip install --upgrade pip"))
+    venv_python = _venv_python_cmd(shell)
+    install_cmd = install_cmd.replace("python3 -m pip", f"{venv_python} -m pip")
+    install_cmd = install_cmd.replace("python -m pip", f"{venv_python} -m pip")
+    return install_cmd
+
+
 def _normalize_class_key(value: Any) -> str:
     raw = str(value or "").strip().lower()
     if not raw:
@@ -435,6 +447,7 @@ def _build_readme(
         pass
 
     command_lang = "powershell" if shell == "powershell" else "bash"
+    venv_install_cmd = _venv_install_cmd(profile, shell)
     notes_lines = "\n".join(f"- {line}" for line in profile.get("notes", []))
     script_list = "\n".join(f"- `{name}`" for name in scripts) if scripts else "- No target wrapper scripts generated."
     conda_env_name = str(profile.get("conda_env_name", "vf_deploy"))
@@ -509,7 +522,7 @@ def _build_readme(
         f"```{command_lang}\n"
         f"{profile['venv_create']}\n"
         f"{profile['venv_activate']}\n"
-        f"{profile['install_cmd']}\n"
+        f"{venv_install_cmd}\n"
         "```\n\n"
         "#### Option B: Conda (Anaconda/Miniconda)\n"
         f"```{command_lang}\n"
@@ -570,6 +583,7 @@ def _build_readme(
         f"{notes_lines}\n\n"
         "## Troubleshooting\n"
         "- If import errors happen, confirm the virtual environment is active.\n"
+        "- If pip warns about `~/.local/bin` script location, dependencies were installed outside `.venv`; run Option A again and keep the `.venv` commands exactly as documented.\n"
         "- If inference is slow, reduce input resolution and batch size.\n"
         "- If classes look wrong, verify class mapping against your training dataset.\n"
     )
