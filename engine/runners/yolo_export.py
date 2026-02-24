@@ -24,15 +24,21 @@ TARGET_LABELS = {
 TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "edge_jetson": {
         "shell": "bash",
-        "venv_create": "python3 -m venv .venv",
+        "venv_create": "python3.10 -m venv .venv 2>/dev/null || python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime-gpu opencv-python numpy",
+        "install_cmd": (
+            "python -m pip install --upgrade pip setuptools wheel && \\\n"
+            "python -m pip install ultralytics opencv-python numpy && \\\n"
+            "(python -m pip install onnxruntime-gpu || python -m pip install onnxruntime || \\\n"
+            "  (echo 'Install NVIDIA ONNX Runtime wheel compatible with your JetPack version before inference.' && false))"
+        ),
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "script_files": ["run_linux.sh", "validate_linux.sh"],
         "notes": [
             "JetPack version and CUDA stack must match the target device.",
-            "If `onnxruntime-gpu` is not available for your JetPack build, install the NVIDIA-provided ONNX Runtime wheel for that release.",
+            "Use the system-supported Python version for your JetPack release (typically 3.8 or 3.10).",
+            "Do not rely on PyPI `onnxruntime-gpu` on Jetson; install NVIDIA's JetPack-matched ONNX Runtime wheel when required.",
             "For lower latency, consider converting ONNX to TensorRT after functional validation.",
         ],
     },
