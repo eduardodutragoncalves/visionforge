@@ -846,9 +846,11 @@ export const ProjectModels = () => {
             if (modelSortBy === 'name_asc') return String(a.name || a.id).localeCompare(String(b.name || b.id));
             if (modelSortBy === 'deployments_desc') return (b.deployments?.length || 0) - (a.deployments?.length || 0);
             if (modelSortBy === 'train_accuracy_desc') {
-                const aAcc = toAccuracyPercent(a.metrics?.accuracy) ?? -Infinity;
-                const bAcc = toAccuracyPercent(b.metrics?.accuracy) ?? -Infinity;
-                return bAcc - aAcc;
+                const taskA = resolveVariantTask(a, datasetTask);
+                const taskB = resolveVariantTask(b, datasetTask);
+                const primaryA = getVariantPrimaryMetric(a, taskA).value ?? -Infinity;
+                const primaryB = getVariantPrimaryMetric(b, taskB).value ?? -Infinity;
+                return primaryB - primaryA;
             }
             if (modelSortBy === 'validation_accuracy_desc') {
                 const aAcc = normalizedValidation(a.validation).accuracyPct ?? -Infinity;
@@ -861,7 +863,7 @@ export const ProjectModels = () => {
         });
 
         return filtered;
-    }, [deployingByVariant, modelDeploymentFilter, modelSearchQuery, modelSortBy, modelValidationFilter, variants]);
+    }, [datasetTask, deployingByVariant, modelDeploymentFilter, modelSearchQuery, modelSortBy, modelValidationFilter, variants]);
 
     const totalDeployments = useMemo(
         () => variants.reduce((count, variant) => count + (variant.deployments?.length || 0), 0),
@@ -885,6 +887,11 @@ export const ProjectModels = () => {
         if (entries.length === 0) return null;
         return entries.reduce((sum, value) => sum + value, 0) / entries.length;
     }, [variants]);
+
+    const trainSortLabel = datasetTask === 'classification' ? 'Train accuracy (desc)' : 'Train mAP50 (desc)';
+    const validationSortLabel = datasetTask === 'classification' ? 'Validation accuracy (desc)' : 'Validation score (desc)';
+    const validationMetricLabel = datasetTask === 'classification' ? 'Validation accuracy' : 'Validation score';
+    const validationSummaryLabel = datasetTask === 'classification' ? 'Accuracy avg' : 'Score avg';
 
     const deployedModelCount = useMemo(
         () => variants.filter((variant) => (variant.deployments?.length || 0) > 0).length,
@@ -996,7 +1003,7 @@ export const ProjectModels = () => {
                 <SummaryMetricCard
                     title="Validation"
                     value={`${modelsWithValidation}/${variants.length}`}
-                    hint={`Accuracy avg ${formatPercent(averageValidationAccuracy)} · Labels ${validationLabeledTotal}`}
+                    hint={`${validationSummaryLabel} ${formatPercent(averageValidationAccuracy)} · Labels ${validationLabeledTotal}`}
                     icon={CheckCircle2}
                     tone={modelsWithValidation > 0 ? 'success' : 'default'}
                 />
@@ -1223,8 +1230,8 @@ export const ProjectModels = () => {
                         options={[
                             { value: 'newest', label: 'Newest first' },
                             { value: 'oldest', label: 'Oldest first' },
-                            { value: 'train_accuracy_desc', label: 'Train accuracy (desc)' },
-                            { value: 'validation_accuracy_desc', label: 'Validation accuracy (desc)' },
+                            { value: 'train_accuracy_desc', label: trainSortLabel },
+                            { value: 'validation_accuracy_desc', label: validationSortLabel },
                             { value: 'validation_coverage_desc', label: 'Validation coverage (desc)' },
                             { value: 'deployments_desc', label: 'Deployments count (desc)' },
                             { value: 'name_asc', label: 'Name (A-Z)' }
