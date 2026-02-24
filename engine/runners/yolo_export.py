@@ -28,7 +28,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": (
             "python -m pip install --upgrade pip setuptools wheel && \\\n"
-            "python -m pip install ultralytics onnx opencv-python numpy && \\\n"
+            "python -m pip install ultralytics onnx opencv-python numpy flask && \\\n"
             "(python -m pip install onnxruntime-gpu || python -m pip install onnxruntime || \\\n"
             "  (echo 'Install NVIDIA ONNX Runtime wheel compatible with your JetPack version before inference.' && false))"
         ),
@@ -48,7 +48,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "script_files": ["run_linux.sh", "validate_linux.sh"],
@@ -61,7 +61,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "script_files": ["run_linux.sh", "validate_linux.sh"],
@@ -74,7 +74,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "script_files": ["run_linux.sh", "validate_linux.sh"],
@@ -87,7 +87,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "script_files": ["run_linux.sh", "validate_linux.sh"],
@@ -100,7 +100,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_macos.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_macos.sh",
         "script_files": ["run_macos.sh", "validate_macos.sh"],
@@ -113,7 +113,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "powershell",
         "venv_create": "python -m venv .venv",
         "venv_activate": ".\\.venv\\Scripts\\Activate.ps1",
-        "install_cmd": "python -m pip install --upgrade pip; python -m pip install ultralytics onnxruntime opencv-python numpy",
+        "install_cmd": "python -m pip install --upgrade pip; python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": ".\\run_windows.ps1 -ImagePath validation\\images\\<image_file>",
         "validation_cmd": ".\\validate_windows.ps1",
         "script_files": ["run_windows.ps1", "validate_windows.ps1"],
@@ -383,8 +383,12 @@ def _build_readme(
         "- `validation/images/` (images used in project validation history)\n"
         "- `validation/expected_results.json` (reference labels derived from validated history)\n"
         "- `validation/validation_report.json` (generated after running batch validation)\n"
+        "- `validation/predictions/` (annotated validation images generated by `validate_batch.py`)\n"
         "- `run_local.py`\n"
         "- `validate_batch.py`\n"
+        "- `integration_example.py` (example script for image/video inference)\n"
+        "- `demo_app.py` (simple web UI for image/video testing)\n"
+        "- `assets/visionforge-logo.png`\n"
         f"{script_list}\n"
         "- `manifest.json`\n\n"
         "## Validation Dataset Snapshot\n"
@@ -414,8 +418,19 @@ def _build_readme(
         "```\n\n"
         "### 6) Inspect results\n"
         "- Validation report is saved to `validation/validation_report.json`.\n"
+        "- Annotated validation images are saved to `validation/predictions/`.\n"
         "- Batch output includes evaluated image count and top-1 agreement with reference labels.\n"
         "- Use per-image results in the report to investigate errors directly on device.\n\n"
+        "### 7) Use Python integration examples (image and video)\n"
+        f"```{command_lang}\n"
+        "python integration_example.py --source validation/images/<image_file>\n"
+        "python integration_example.py --source /path/to/video.mp4\n"
+        "```\n\n"
+        "### 8) Launch a simple local demo UI\n"
+        f"```{command_lang}\n"
+        "python demo_app.py --host 0.0.0.0 --port 7860\n"
+        "```\n"
+        "- Open `http://127.0.0.1:7860` (or the target device IP) in your browser.\n\n"
         "## Target-Specific Notes\n"
         f"{notes_lines}\n\n"
         "## Troubleshooting\n"
