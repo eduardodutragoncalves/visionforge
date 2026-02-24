@@ -4004,6 +4004,204 @@ export const ProjectDataset = () => {
                         </div>
                     )}
 
+                    {detectionPreviewImage && dataset?.task === 'detection' && (
+                        <div className="modal-backdrop" role="dialog" aria-modal="true">
+                            <div className="modal-card max-w-[1320px] max-h-[94vh] overflow-y-auto">
+                                <div className="modal-header">
+                                    <div>
+                                        <div className="text-xs uppercase tracking-[0.4em] text-haze">Detection preview</div>
+                                        <div className="text-lg font-semibold">{detectionPreviewImage.id}</div>
+                                        <div className="mt-1 text-[11px] uppercase tracking-[0.28em] text-secondary">
+                                            Draw boxes in this centered view.
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="window-button"
+                                        onClick={() => setPreviewImageId(null)}
+                                        aria-label="Close"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+
+                                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                                    <div className="text-xs uppercase tracking-[0.3em] text-secondary">
+                                        Image {detectionPreviewIndex >= 0 ? detectionPreviewIndex + 1 : 0} / {detectionVisibleImages.length}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <Select
+                                            label="Active class"
+                                            options={classes.map((cls) => ({ value: String(cls.id), label: cls.name }))}
+                                            value={activeClassId !== null ? String(activeClassId) : ''}
+                                            onChange={(event) => setActiveClassId(Number(event.target.value))}
+                                        />
+                                        <Button
+                                            size="sm"
+                                            variant={detectionPreviewImage.detection_done ? 'secondary' : 'primary'}
+                                            className={detectionPreviewImage.detection_done ? 'border-accent-success/60 text-accent-success' : undefined}
+                                            onClick={() => void updateDetectionDone(detectionPreviewImage.id, !detectionPreviewImage.detection_done)}
+                                        >
+                                            {detectionPreviewImage.detection_done ? 'Mark pending' : 'Mark done (S)'}
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            className="border-accent-error/60 text-accent-error hover:text-white"
+                                            onClick={() => void handleDeleteFromDetectionPreview(detectionPreviewImage.id)}
+                                        >
+                                            Delete image
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                <div className="modal-image-frame">
+                                    <div
+                                        className="relative flex min-h-[620px] items-center justify-center border-2 border-graphite-700 bg-graphite-900 p-3"
+                                        onMouseDown={handleMouseDown}
+                                        onMouseMove={handleMouseMove}
+                                        onMouseUp={handleMouseUp}
+                                        onMouseLeave={() => {
+                                            if (!isDrawing) return;
+                                            setIsDrawing(false);
+                                            setDraftBox(null);
+                                        }}
+                                    >
+                                        {selectedImage && selectedImage.id === detectionPreviewImage.id ? (
+                                            <div className="relative inline-block max-w-full">
+                                                <img
+                                                    ref={previewImageRef}
+                                                    src={getImageSrc(detectionPreviewImage)}
+                                                    alt={detectionPreviewImage.id}
+                                                    className="max-h-[76vh] max-w-full select-none object-contain"
+                                                    draggable={false}
+                                                    onLoad={(event) => {
+                                                        handleSelectedImageLoad(event);
+                                                        drawBoxes(selectedImage.boxes, draftBox);
+                                                    }}
+                                                />
+                                                <canvas ref={previewCanvasRef} className="absolute left-0 top-0 pointer-events-none" />
+                                                <button
+                                                    type="button"
+                                                    className={clsx('preview-nav-button preview-nav-prev', !canGoPrevDetectionPreview && 'preview-nav-button-disabled')}
+                                                    onClick={goToPreviousDetectionPreviewImage}
+                                                    disabled={!canGoPrevDetectionPreview}
+                                                    title="Previous image (Left Arrow)"
+                                                    aria-label="Previous image"
+                                                >
+                                                    <ChevronLeft size={18} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className={clsx('preview-nav-button preview-nav-next', !canGoNextDetectionPreview && 'preview-nav-button-disabled')}
+                                                    onClick={goToNextDetectionPreviewImage}
+                                                    disabled={!canGoNextDetectionPreview}
+                                                    title="Next image (Right Arrow)"
+                                                    aria-label="Next image"
+                                                >
+                                                    <ChevronRight size={18} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="text-secondary text-sm">Loading selected image...</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {selectedImage && selectedImage.id === detectionPreviewImage.id && (
+                                    <div className="mt-4 space-y-2">
+                                        <div className="flex items-center justify-between text-xs uppercase tracking-[0.3em] text-haze">
+                                            <span>Boxes</span>
+                                            <span className="text-secondary">
+                                                {selectedImage.id} · {selectedImage.detection_done ? 'Done' : 'Pending'}
+                                            </span>
+                                        </div>
+                                        {selectedImage.boxes.map((box, index) => (
+                                            <div
+                                                key={`preview-detection-box-${selectedImage.id}-${index}`}
+                                                className={clsx(
+                                                    'flex items-center justify-between border-2 px-2 py-1 text-xs',
+                                                    editingBoxIndex === index ? 'border-accent-primary' : 'border-graphite-700'
+                                                )}
+                                            >
+                                                <span>{classMap.get(box.class_id) || `Class ${box.class_id}`}</span>
+                                                <div className="flex items-center gap-3">
+                                                    <button onClick={() => handleStartEditBox(index)} className="text-accent-primary">Edit</button>
+                                                    <button onClick={() => handleRemoveBox(index)} className="text-error">Remove</button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {selectedImage.boxes.length === 0 && (
+                                            <div className="text-xs text-secondary">No boxes yet.</div>
+                                        )}
+                                        {editingBoxDraft && (
+                                            <div className="mt-3 rounded-xl border border-accent-primary/40 bg-graphite-900 p-3 space-y-3">
+                                                <div className="text-xs uppercase tracking-[0.3em] text-secondary">
+                                                    Edit box #{(editingBoxIndex ?? 0) + 1}
+                                                </div>
+                                                <div className="grid gap-2 sm:grid-cols-2">
+                                                    <Select
+                                                        label="Class"
+                                                        options={classes.map((cls) => ({
+                                                            value: String(cls.id),
+                                                            label: cls.name
+                                                        }))}
+                                                        value={String(editingBoxDraft.class_id)}
+                                                        onChange={(event) => handleEditBoxFieldChange('class_id', event.target.value)}
+                                                    />
+                                                    <Input
+                                                        label="X"
+                                                        type="number"
+                                                        min={0}
+                                                        max={1}
+                                                        step="0.001"
+                                                        value={editingBoxDraft.x}
+                                                        onChange={(event) => handleEditBoxFieldChange('x', event.target.value)}
+                                                    />
+                                                    <Input
+                                                        label="Y"
+                                                        type="number"
+                                                        min={0}
+                                                        max={1}
+                                                        step="0.001"
+                                                        value={editingBoxDraft.y}
+                                                        onChange={(event) => handleEditBoxFieldChange('y', event.target.value)}
+                                                    />
+                                                    <Input
+                                                        label="Width"
+                                                        type="number"
+                                                        min={0}
+                                                        max={1}
+                                                        step="0.001"
+                                                        value={editingBoxDraft.w}
+                                                        onChange={(event) => handleEditBoxFieldChange('w', event.target.value)}
+                                                    />
+                                                    <Input
+                                                        label="Height"
+                                                        type="number"
+                                                        min={0}
+                                                        max={1}
+                                                        step="0.001"
+                                                        value={editingBoxDraft.h}
+                                                        onChange={(event) => handleEditBoxFieldChange('h', event.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <Button size="sm" variant="secondary" onClick={handleCancelEditBox}>
+                                                        Cancel
+                                                    </Button>
+                                                    <Button size="sm" variant="primary" onClick={handleSaveEditedBox}>
+                                                        Save box
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {dataset && dataset.task === 'detection' && (
                         <Card className="space-y-4">
                             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
