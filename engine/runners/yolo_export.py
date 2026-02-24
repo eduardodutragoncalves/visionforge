@@ -25,6 +25,9 @@ TARGET_LABELS = {
 TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "edge_jetson": {
         "shell": "bash",
+        "conda_env_name": "vf_deploy",
+        "conda_python": "3.8",
+        "docker_base_image": "nvcr.io/nvidia/l4t-ml:r35.4.1-py3",
         "venv_create": "python3.8 -m venv .venv 2>/dev/null || python3.10 -m venv .venv 2>/dev/null || python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": (
@@ -53,6 +56,9 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "edge_raspberry_pi": {
         "shell": "bash",
+        "conda_env_name": "vf_deploy",
+        "conda_python": "3.10",
+        "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
@@ -72,6 +78,9 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "edge_orange_pi": {
         "shell": "bash",
+        "conda_env_name": "vf_deploy",
+        "conda_python": "3.10",
+        "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
@@ -91,6 +100,9 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "edge_generic": {
         "shell": "bash",
+        "conda_env_name": "vf_deploy",
+        "conda_python": "3.10",
+        "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
@@ -110,6 +122,9 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "desktop_linux": {
         "shell": "bash",
+        "conda_env_name": "vf_deploy",
+        "conda_python": "3.10",
+        "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
@@ -129,6 +144,9 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "desktop_macos": {
         "shell": "bash",
+        "conda_env_name": "vf_deploy",
+        "conda_python": "3.10",
+        "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
@@ -148,6 +166,9 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "desktop_windows": {
         "shell": "powershell",
+        "conda_env_name": "vf_deploy",
+        "conda_python": "3.10",
+        "docker_base_image": "python:3.10-slim",
         "venv_create": "python -m venv .venv",
         "venv_activate": ".\\.venv\\Scripts\\Activate.ps1",
         "install_cmd": "python -m pip install --upgrade pip; python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
