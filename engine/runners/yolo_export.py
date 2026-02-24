@@ -437,6 +437,26 @@ def _build_readme(
     command_lang = "powershell" if shell == "powershell" else "bash"
     notes_lines = "\n".join(f"- {line}" for line in profile.get("notes", []))
     script_list = "\n".join(f"- `{name}`" for name in scripts) if scripts else "- No target wrapper scripts generated."
+    conda_env_name = str(profile.get("conda_env_name", "vf_deploy"))
+    conda_python = str(profile.get("conda_python", "3.10"))
+    conda_create_cmd = str(profile.get("conda_create_cmd", f"conda create -n {conda_env_name} python={conda_python} -y"))
+    conda_activate_cmd = str(profile.get("conda_activate_cmd", f"conda activate {conda_env_name}"))
+    docker_base_image = str(profile.get("docker_base_image", "python:3.10-slim"))
+    docker_build_cmd = str(
+        profile.get(
+            "docker_build_cmd",
+            f"docker build --build-arg BASE_IMAGE={docker_base_image} -t visionforge-deploy:local .",
+        )
+    )
+    docker_run_cmd = str(
+        profile.get(
+            "docker_run_cmd",
+            "docker run --rm -p 8090:8090 visionforge-deploy:local "
+            "python inference_server.py --host 0.0.0.0 --port 8090",
+        )
+    )
+    compose_up_cmd = str(profile.get("compose_up_cmd", "docker compose up --build"))
+    compose_down_cmd = str(profile.get("compose_down_cmd", "docker compose down"))
     example_image_cmd = str(
         profile.get("example_image_cmd", "python integration_example.py --source validation/images/<image_file>")
     ).replace("<image_file>", sample_image)
@@ -468,6 +488,11 @@ def _build_readme(
         "- `inference_server.py` (HTTP inference endpoint)\n"
         "- `integration_example.py` (example script for image/video inference)\n"
         "- `demo_app.py` (simple web UI for image/video testing)\n"
+        "- `requirements.runtime.txt` (runtime deps for Conda/Docker)\n"
+        "- `environment.conda.yml` (Conda environment template)\n"
+        "- `Dockerfile`\n"
+        "- `docker-compose.yml` (server + demo UI together)\n"
+        "- `.dockerignore`\n"
         "- `assets/visionforge-logo.png`\n"
         f"{script_list}\n"
         "- `manifest.json`\n\n"
@@ -1677,6 +1702,118 @@ def _write_branding_assets(package_dir: Path):
     )
 
 
+def _write_runtime_assets(package_dir: Path, target_id: str):
+    profile = _target_profile(target_id)
+    conda_env_name = str(profile.get("conda_env_name") or "vf_deploy")
+    conda_python = str(profile.get("conda_python") or "3.10")
+    docker_base_image = str(profile.get("docker_base_image") or "python:3.10-slim")
+
+    requirements_runtime = textwrap.dedent(
+        """
+        ultralytics
+        opencv-python-headless
+        numpy
+        flask
+        requests
+        onnx
+        onnxruntime
+        """
+    ).strip() + "\n"
+    (package_dir / "requirements.runtime.txt").write_text(requirements_runtime, encoding="utf-8")
+
+    conda_env = textwrap.dedent(
+        f"""
+        name: {conda_env_name}
+        channels:
+          - conda-forge
+        dependencies:
+          - python={conda_python}
+          - pip
+          - pip:
+              - -r requirements.runtime.txt
+        """
+    ).strip() + "\n"
+    (package_dir / "environment.conda.yml").write_text(conda_env, encoding="utf-8")
+
+    dockerfile_content = textwrap.dedent(
+        f"""
+        ARG BASE_IMAGE={docker_base_image}
+        FROM ${{BASE_IMAGE}}
+
+        ENV PYTHONDONTWRITEBYTECODE=1 \\
+            PYTHONUNBUFFERED=1 \\
+            PIP_NO_CACHE_DIR=1
+
+        WORKDIR /opt/visionforge
+        COPY requirements.runtime.txt ./requirements.runtime.txt
+
+        RUN python -m pip install --upgrade pip setuptools wheel \\
+            && python -m pip install -r requirements.runtime.txt
+
+        COPY . .
+        EXPOSE 8090 7860
+
+        CMD ["python", "inference_server.py", "--host", "0.0.0.0", "--port", "8090"]
+        """
+    ).strip() + "\n"
+    (package_dir / "Dockerfile").write_text(dockerfile_content, encoding="utf-8")
+
+    docker_compose = textwrap.dedent(
+        f"""
+        services:
+          vf-server:
+            build:
+              context: .
+              dockerfile: Dockerfile
+              args:
+                BASE_IMAGE: ${{VISIONFORGE_BASE_IMAGE:-{docker_base_image}}}
+            command: ["python", "inference_server.py", "--host", "0.0.0.0", "--port", "8090"]
+            ports:
+              - "8090:8090"
+            restart: unless-stopped
+            volumes:
+              - ./server_outputs:/opt/visionforge/server_outputs
+              - ./server_uploads:/opt/visionforge/server_uploads
+
+          vf-demo:
+            build:
+              context: .
+              dockerfile: Dockerfile
+              args:
+                BASE_IMAGE: ${{VISIONFORGE_BASE_IMAGE:-{docker_base_image}}}
+            command: ["python", "demo_app.py", "--host", "0.0.0.0", "--port", "7860", "--server-url", "http://vf-server:8090"]
+            ports:
+              - "7860:7860"
+            depends_on:
+              - vf-server
+            restart: unless-stopped
+            volumes:
+              - ./demo_outputs:/opt/visionforge/demo_outputs
+              - ./demo_uploads:/opt/visionforge/demo_uploads
+        """
+    ).strip() + "\n"
+    (package_dir / "docker-compose.yml").write_text(docker_compose, encoding="utf-8")
+
+    dockerignore = textwrap.dedent(
+        """
+        .git
+        .gitignore
+        .venv
+        __pycache__/
+        *.pyc
+        *.pyo
+        *.pyd
+        demo_outputs/
+        demo_uploads/
+        server_outputs/
+        server_uploads/
+        example_outputs/
+        validation/predictions/
+        """
+    ).strip() + "\n"
+    (package_dir / ".dockerignore").write_text(dockerignore, encoding="utf-8")
+
+
 def _build_package_zip(package_dir: Path) -> Path:
     # Creates <package_dir>.zip next to the package folder.
     zip_path = Path(shutil.make_archive(str(package_dir), "zip", root_dir=str(package_dir)))
@@ -1792,7 +1929,10 @@ def main():
         emit_event("export/progress", {"message": "Writing runtime scripts...", "stage": "scripts", "progress": 82})
         _write_runner_scripts(package_dir, model_filename, args.target_id)
 
-        emit_event("export/progress", {"message": "Copying branding assets...", "stage": "assets", "progress": 86})
+        emit_event("export/progress", {"message": "Writing runtime environment assets...", "stage": "runtime", "progress": 84})
+        _write_runtime_assets(package_dir, args.target_id)
+
+        emit_event("export/progress", {"message": "Copying branding assets...", "stage": "assets", "progress": 87})
         _write_branding_assets(package_dir)
 
         emit_event("export/progress", {"message": "Creating deployment zip...", "stage": "archive", "progress": 90})
