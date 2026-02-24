@@ -796,6 +796,216 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
     ).strip() + "\n"
     validate_py.write_text(validate_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
 
+    server_script = textwrap.dedent(
+        """
+        import argparse
+        import json
+        import time
+        from pathlib import Path
+        from typing import Any, Dict, List
+
+        import cv2
+        from flask import Flask, jsonify, request, send_from_directory
+        from ultralytics import YOLO
+
+
+        IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+        VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
+
+        PACKAGE_DIR = Path(__file__).resolve().parent
+        MODEL_PATH = PACKAGE_DIR / "artifacts" / "__MODEL_FILENAME__"
+        UPLOAD_DIR = PACKAGE_DIR / "server_uploads"
+        OUTPUT_DIR = PACKAGE_DIR / "server_outputs"
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        MODEL = YOLO(str(MODEL_PATH))
+        APP = Flask(__name__)
+        STARTED_AT = time.time()
+
+
+        def summarize_result(result: Any) -> Dict[str, Any]:
+            if getattr(result, "probs", None) is not None:
+                probs = result.probs
+                top_predictions: List[Dict[str, Any]] = []
+                if hasattr(probs, "top5") and hasattr(probs, "top5conf"):
+                    for cls_id, conf in zip(probs.top5, probs.top5conf):
+                        top_predictions.append(
+                            {
+                                "class_id": int(cls_id),
+                                "class_name": str(result.names[int(cls_id)]),
+                                "confidence": float(conf),
+                            }
+                        )
+                return {"task": "classify", "predictions": top_predictions}
+
+            boxes = list(getattr(result, "boxes", []) or [])
+            detections: List[Dict[str, Any]] = []
+            for box in boxes:
+                cls_id = int(box.cls)
+                xyxy = box.xyxy[0].tolist() if hasattr(box, "xyxy") else [0, 0, 0, 0]
+                detections.append(
+                    {
+                        "class_id": cls_id,
+                        "class_name": str(result.names.get(cls_id, cls_id) if isinstance(result.names, dict) else result.names[cls_id]),
+                        "confidence": float(box.conf),
+                        "bbox_xyxy": [float(v) for v in xyxy],
+                    }
+                )
+            detections.sort(key=lambda item: item["confidence"], reverse=True)
+            return {"task": "detect", "predictions": detections}
+
+
+        def infer_image(path: Path, conf: float, iou: float) -> Dict[str, Any]:
+            started = time.time()
+            results = MODEL.predict(source=str(path), verbose=False, conf=conf, iou=iou)
+            if not results:
+                raise RuntimeError("No inference result produced")
+            result = results[0]
+            summary = summarize_result(result)
+            annotated = result.plot()
+            output_name = f"{path.stem}_pred_{int(time.time() * 1000)}.jpg"
+            output_path = OUTPUT_DIR / output_name
+            cv2.imwrite(str(output_path), annotated)
+            return {
+                "status": "ok",
+                "source_type": "image",
+                "source_file": path.name,
+                "output_file": output_name,
+                "output_url": f"/outputs/{output_name}",
+                "inference_ms": round((time.time() - started) * 1000, 2),
+                **summary,
+            }
+
+
+        def infer_video(path: Path, conf: float, iou: float) -> Dict[str, Any]:
+            started = time.time()
+            cap = cv2.VideoCapture(str(path))
+            if not cap.isOpened():
+                raise RuntimeError(f"Could not open video: {path}")
+
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0) or 30.0
+            if width <= 0 or height <= 0:
+                cap.release()
+                raise RuntimeError("Invalid video dimensions")
+
+            base_name = f"{path.stem}_pred_{int(time.time() * 1000)}"
+            output_name = f"{base_name}.mp4"
+            output_path = OUTPUT_DIR / output_name
+            writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+            if not writer.isOpened():
+                output_name = f"{base_name}.avi"
+                output_path = OUTPUT_DIR / output_name
+                writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"XVID"), fps, (width, height))
+            if not writer.isOpened():
+                cap.release()
+                raise RuntimeError("Could not create output video writer")
+
+            frames = 0
+            sample_predictions: List[Dict[str, Any]] = []
+            sample_task = "detect"
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                results = MODEL.predict(source=frame, verbose=False, conf=conf, iou=iou)
+                if results:
+                    first = results[0]
+                    if frames == 0:
+                        summary = summarize_result(first)
+                        sample_predictions = summary.get("predictions", [])
+                        sample_task = str(summary.get("task") or "detect")
+                    writer.write(first.plot())
+                else:
+                    writer.write(frame)
+                frames += 1
+
+            cap.release()
+            writer.release()
+            return {
+                "status": "ok",
+                "source_type": "video",
+                "source_file": path.name,
+                "output_file": output_name,
+                "output_url": f"/outputs/{output_name}",
+                "frames_processed": frames,
+                "inference_ms": round((time.time() - started) * 1000, 2),
+                "task": sample_task,
+                "predictions": sample_predictions[:10],
+            }
+
+
+        @APP.get("/")
+        def root():
+            return jsonify(
+                {
+                    "service": "visionforge-inference-server",
+                    "status": "ok",
+                    "health_url": "/health",
+                    "predict_url": "/predict",
+                }
+            )
+
+
+        @APP.get("/health")
+        def health():
+            return jsonify(
+                {
+                    "status": "ok",
+                    "uptime_sec": round(time.time() - STARTED_AT, 3),
+                    "model_path": str(MODEL_PATH),
+                }
+            )
+
+
+        @APP.get("/outputs/<path:filename>")
+        def outputs(filename: str):
+            return send_from_directory(str(OUTPUT_DIR), filename)
+
+
+        @APP.post("/predict")
+        def predict():
+            file = request.files.get("file")
+            if file is None or not file.filename:
+                return jsonify({"status": "error", "error": "Missing multipart file field `file`"}), 400
+
+            suffix = Path(file.filename).suffix.lower()
+            if suffix not in IMAGE_EXTENSIONS and suffix not in VIDEO_EXTENSIONS:
+                return jsonify({"status": "error", "error": f"Unsupported extension: {suffix}"}), 400
+
+            conf = float(request.form.get("conf", "0.25") or 0.25)
+            iou = float(request.form.get("iou", "0.7") or 0.7)
+            uploaded_name = f"upload_{int(time.time() * 1000)}{suffix}"
+            uploaded_path = UPLOAD_DIR / uploaded_name
+            file.save(str(uploaded_path))
+
+            try:
+                if suffix in IMAGE_EXTENSIONS:
+                    payload = infer_image(uploaded_path, conf=conf, iou=iou)
+                else:
+                    payload = infer_video(uploaded_path, conf=conf, iou=iou)
+            except Exception as exc:
+                return jsonify({"status": "error", "error": str(exc)}), 500
+            return jsonify(payload)
+
+
+        def main():
+            parser = argparse.ArgumentParser(description="VisionForge inference server")
+            parser.add_argument("--host", default="0.0.0.0")
+            parser.add_argument("--port", type=int, default=8090)
+            args = parser.parse_args()
+            print(f"VisionForge inference server running at http://{args.host}:{args.port}")
+            APP.run(host=args.host, port=args.port, debug=False)
+
+
+        if __name__ == "__main__":
+            main()
+        """
+    ).strip() + "\n"
+    server_py.write_text(server_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
+
     integration_script = textwrap.dedent(
         """
         import argparse
