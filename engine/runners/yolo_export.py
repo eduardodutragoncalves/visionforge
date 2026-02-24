@@ -2408,6 +2408,11 @@ def main():
 
         emit_event("export/progress", {"message": "Preparing deployment package...", "stage": "package", "progress": 70})
         model_filename = target_path.name
+        backend_order = [str(item).strip().lower() for item in (profile.get("backend_order") or []) if str(item).strip()]
+        if "ultralytics" in backend_order and model_path.exists():
+            pt_target_path = output_dir / "model.pt"
+            if model_path.resolve() != pt_target_path.resolve():
+                shutil.copy2(str(model_path), str(pt_target_path))
 
         validation_summary = _collect_validation_assets(
             project_id=args.project_id,
