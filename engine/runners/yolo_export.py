@@ -1009,10 +1009,13 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
     integration_script = textwrap.dedent(
         """
         import argparse
+        import json
         import time
         from pathlib import Path
+        from urllib.parse import urljoin
 
         import cv2
+        import requests
         from ultralytics import YOLO
 
 
@@ -1090,29 +1093,74 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             return out_path, total_frames
 
 
+        def infer_via_server(server_url: str, source_path: Path, out_dir: Path, conf: float, iou: float, timeout: float):
+            base = server_url.rstrip("/") + "/"
+            health_url = urljoin(base, "health")
+            predict_url = urljoin(base, "predict")
+            health_res = requests.get(health_url, timeout=timeout)
+            health_res.raise_for_status()
+            with source_path.open("rb") as fp:
+                response = requests.post(
+                    predict_url,
+                    files={"file": (source_path.name, fp, "application/octet-stream")},
+                    data={"conf": str(conf), "iou": str(iou)},
+                    timeout=max(timeout, 60.0),
+                )
+            response.raise_for_status()
+            payload = response.json()
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+            output_url = payload.get("output_url")
+            if output_url:
+                download_url = output_url if str(output_url).startswith("http") else urljoin(base, str(output_url).lstrip("/"))
+                target_name = str(payload.get("output_file") or Path(str(output_url)).name or f"{source_path.stem}_server_pred")
+                target_path = out_dir / target_name
+                with requests.get(download_url, timeout=max(timeout, 60.0), stream=True) as download:
+                    download.raise_for_status()
+                    with target_path.open("wb") as out_fp:
+                        for chunk in download.iter_content(chunk_size=1024 * 64):
+                            if chunk:
+                                out_fp.write(chunk)
+                print(f"Downloaded server output: {target_path}")
+
+
         def main():
-            parser = argparse.ArgumentParser(description="VisionForge integration example for image and video inference")
+            parser = argparse.ArgumentParser(description="VisionForge integration example for image/video inference")
             parser.add_argument("--source", required=True, help="Image or video file path")
             parser.add_argument("--model", default="artifacts/__MODEL_FILENAME__", help="Relative model path inside package")
             parser.add_argument("--out-dir", default="example_outputs", help="Output directory for annotated files")
             parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
+            parser.add_argument("--iou", type=float, default=0.7, help="IoU threshold")
+            parser.add_argument("--server-url", default="", help="Optional inference server URL, e.g. http://127.0.0.1:8090")
+            parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds for server mode")
             args = parser.parse_args()
 
             package_dir = Path(__file__).resolve().parent
             source_path = Path(args.source).expanduser().resolve()
-            model_path = (package_dir / args.model).resolve()
             out_dir = (package_dir / args.out_dir).resolve()
             out_dir.mkdir(parents=True, exist_ok=True)
 
             if not source_path.exists():
                 raise FileNotFoundError(f"Source not found: {source_path}")
+
+            started = time.time()
+            if args.server_url.strip():
+                infer_via_server(
+                    server_url=args.server_url.strip(),
+                    source_path=source_path,
+                    out_dir=out_dir,
+                    conf=args.conf,
+                    iou=args.iou,
+                    timeout=args.timeout,
+                )
+                print(f"Done via server in {time.time() - started:.2f}s")
+                return
+
+            model_path = (package_dir / args.model).resolve()
             if not model_path.exists():
                 raise FileNotFoundError(f"Model not found: {model_path}")
-
             model = YOLO(str(model_path))
             suffix = source_path.suffix.lower()
-            started = time.time()
-
             if suffix in IMAGE_EXTENSIONS:
                 out_path = infer_image(model, source_path, out_dir, args.conf)
                 print(f"Annotated image saved: {out_path}")
@@ -1122,8 +1170,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 print(f"Frames processed: {frames}")
             else:
                 raise ValueError(f"Unsupported source extension: {suffix}")
-
-            print(f"Done in {time.time() - started:.2f}s")
+            print(f"Done locally in {time.time() - started:.2f}s")
 
 
         if __name__ == "__main__":
