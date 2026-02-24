@@ -36,7 +36,10 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "onnx_opset": 19,
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh"],
+        "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
+        "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
+        "demo_cmd": "bash demo_linux.sh",
+        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "JetPack version and CUDA stack must match the target device.",
             "Most Jetson deployments use Python 3.8; use 3.10 only on newer JetPack images that support it.",
@@ -52,7 +55,10 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh"],
+        "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
+        "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
+        "demo_cmd": "bash demo_linux.sh",
+        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "Use a small model and reduced image size when RAM is limited.",
             "Prefer active cooling for long-running inference sessions.",
@@ -65,7 +71,10 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh"],
+        "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
+        "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
+        "demo_cmd": "bash demo_linux.sh",
+        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "Current package uses ONNX Runtime CPU baseline.",
             "For Rockchip variants, an RKNN pipeline can be added in a future profile.",
@@ -78,7 +87,10 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh"],
+        "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
+        "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
+        "demo_cmd": "bash demo_linux.sh",
+        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "This profile is a Linux baseline for edge CPU inference.",
             "Tune confidence/IoU thresholds after validating outputs on device.",
@@ -91,7 +103,10 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh"],
+        "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
+        "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
+        "demo_cmd": "bash demo_linux.sh",
+        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "This profile targets Linux desktop/server CPU baseline.",
             "Use a GPU runtime profile only when your desktop stack is validated for it.",
@@ -104,7 +119,10 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": "bash run_macos.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_macos.sh",
-        "script_files": ["run_macos.sh", "validate_macos.sh"],
+        "example_image_cmd": "bash example_macos.sh validation/images/<image_file>",
+        "example_video_cmd": "bash example_macos.sh /path/to/video.mp4",
+        "demo_cmd": "bash demo_macos.sh",
+        "script_files": ["run_macos.sh", "validate_macos.sh", "example_macos.sh", "demo_macos.sh"],
         "notes": [
             "This profile uses ONNX Runtime baseline on macOS.",
             "CoreML conversion can be evaluated later for Apple Silicon optimization.",
@@ -117,7 +135,10 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "install_cmd": "python -m pip install --upgrade pip; python -m pip install ultralytics onnxruntime opencv-python numpy flask",
         "single_infer_cmd": ".\\run_windows.ps1 -ImagePath validation\\images\\<image_file>",
         "validation_cmd": ".\\validate_windows.ps1",
-        "script_files": ["run_windows.ps1", "validate_windows.ps1"],
+        "example_image_cmd": ".\\example_windows.ps1 -SourcePath validation\\images\\<image_file>",
+        "example_video_cmd": ".\\example_windows.ps1 -SourcePath C:\\path\\to\\video.mp4",
+        "demo_cmd": ".\\demo_windows.ps1 -Host 0.0.0.0 -Port 7860",
+        "script_files": ["run_windows.ps1", "validate_windows.ps1", "example_windows.ps1", "demo_windows.ps1"],
         "notes": [
             "This profile targets Windows baseline with PowerShell commands.",
             "If you need GPU acceleration on Windows, evaluate ONNX Runtime DirectML after baseline validation.",
@@ -374,6 +395,13 @@ def _build_readme(
     command_lang = "powershell" if shell == "powershell" else "bash"
     notes_lines = "\n".join(f"- {line}" for line in profile.get("notes", []))
     script_list = "\n".join(f"- `{name}`" for name in scripts) if scripts else "- No target wrapper scripts generated."
+    example_image_cmd = str(
+        profile.get("example_image_cmd", "python integration_example.py --source validation/images/<image_file>")
+    ).replace("<image_file>", sample_image)
+    example_video_cmd = str(
+        profile.get("example_video_cmd", "python integration_example.py --source /path/to/video.mp4")
+    )
+    demo_cmd = str(profile.get("demo_cmd", "python demo_app.py --host 0.0.0.0 --port 7860"))
 
     return (
         f"# Deployment Guide - {label}\n\n"
@@ -424,12 +452,12 @@ def _build_readme(
         "- Use per-image results in the report to investigate errors directly on device.\n\n"
         "### 7) Use Python integration examples (image and video)\n"
         f"```{command_lang}\n"
-        "python integration_example.py --source validation/images/<image_file>\n"
-        "python integration_example.py --source /path/to/video.mp4\n"
+        f"{example_image_cmd}\n"
+        f"{example_video_cmd}\n"
         "```\n\n"
         "### 8) Launch a simple local demo UI\n"
         f"```{command_lang}\n"
-        "python demo_app.py --host 0.0.0.0 --port 7860\n"
+        f"{demo_cmd}\n"
         "```\n"
         "- Open `http://127.0.0.1:7860` (or the target device IP) in your browser.\n\n"
         "## Target-Specific Notes\n"
@@ -1097,9 +1125,32 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                     "python .\\run_local.py $ImagePath\n",
                     encoding="utf-8",
                 )
-            else:
+            elif filename.startswith("validate_"):
                 target_path.write_text(
                     "python .\\validate_batch.py\n",
+                    encoding="utf-8",
+                )
+            elif filename.startswith("example_"):
+                target_path.write_text(
+                    "param(\n"
+                    "  [Parameter(Mandatory=$true)][string]$SourcePath,\n"
+                    "  [double]$Conf=0.25\n"
+                    ")\n"
+                    "python .\\integration_example.py --source $SourcePath --conf $Conf\n",
+                    encoding="utf-8",
+                )
+            elif filename.startswith("demo_"):
+                target_path.write_text(
+                    "param(\n"
+                    "  [string]$Host='0.0.0.0',\n"
+                    "  [int]$Port=7860\n"
+                    ")\n"
+                    "python .\\demo_app.py --host $Host --port $Port\n",
+                    encoding="utf-8",
+                )
+            else:
+                target_path.write_text(
+                    "python .\\run_local.py\n",
                     encoding="utf-8",
                 )
             continue
@@ -1115,11 +1166,39 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 "python run_local.py \"$1\"\n",
                 encoding="utf-8",
             )
-        else:
+        elif filename.startswith("validate_"):
             target_path.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
                 "python validate_batch.py\n",
+                encoding="utf-8",
+            )
+        elif filename.startswith("example_"):
+            target_path.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "if [ $# -lt 1 ]; then\n"
+                "  echo 'Usage: bash " + filename + " <image_or_video_path> [conf]'\n"
+                "  exit 1\n"
+                "fi\n"
+                "CONF=\"${2:-0.25}\"\n"
+                "python integration_example.py --source \"$1\" --conf \"$CONF\"\n",
+                encoding="utf-8",
+            )
+        elif filename.startswith("demo_"):
+            target_path.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "HOST=\"${1:-0.0.0.0}\"\n"
+                "PORT=\"${2:-7860}\"\n"
+                "python demo_app.py --host \"$HOST\" --port \"$PORT\"\n",
+                encoding="utf-8",
+            )
+        else:
+            target_path.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "python run_local.py\n",
                 encoding="utf-8",
             )
         target_path.chmod(0o755)
