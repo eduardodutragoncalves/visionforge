@@ -1273,7 +1273,7 @@ export const TrainSetup = () => {
                         </div>
                         <div>
                             <h3 className="text-xl font-semibold">Training History</h3>
-                            <p className="text-secondary text-sm">Compact cards with training and validation accuracy highlights.</p>
+                            <p className="text-secondary text-sm">{historyDescription}</p>
                         </div>
                     </div>
                     <Button variant="ghost" onClick={loadHistory} disabled={historyLoading}>
@@ -1329,8 +1329,8 @@ export const TrainSetup = () => {
                             options={[
                                 { value: 'newest', label: 'Newest first' },
                                 { value: 'oldest', label: 'Oldest first' },
-                                { value: 'train_accuracy_desc', label: 'Train accuracy (desc)' },
-                                { value: 'validation_accuracy_desc', label: 'Validation accuracy (desc)' },
+                                { value: 'train_accuracy_desc', label: trainSortLabel },
+                                { value: 'validation_accuracy_desc', label: validationSortLabel },
                                 { value: 'validation_coverage_desc', label: 'Validation coverage (desc)' },
                                 { value: 'name_asc', label: 'Name (A-Z)' }
                             ]}
@@ -1356,14 +1356,19 @@ export const TrainSetup = () => {
                         </div>
                         <div className="mt-3 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
                             {filteredRunHistory.map((run) => {
-                                const indicators = buildIndicators(run);
-                                const extraIndicators = indicators.filter((item) => item.label !== 'Accuracy');
+                                const runTask = resolveRunTask(run, datasetTask);
+                                const primaryMetric = getRunPrimaryMetric(run, runTask);
+                                const indicators = buildIndicators(run, runTask);
+                                const extraIndicators = indicators.filter((item) => item.key !== primaryMetric.key);
                                 const statusMeta = getRunStatusMeta(run.status);
                                 const StatusIcon = statusMeta.icon;
                                 const onnxExported = Boolean(runOnnxMap[run.id]);
                                 const runValidation = runValidationMap[run.id] || null;
                                 const isInProgress = isInProgressStatus(run.status);
                                 const isDeleting = deletingRunId === run.id;
+                                const primaryMetricValue = primaryMetric.format === 'percent'
+                                    ? formatAccuracyBadge(primaryMetric.value)
+                                    : formatMetric(primaryMetric.value);
                                 return (
                                     <div
                                         key={run.id}
@@ -1395,15 +1400,15 @@ export const TrainSetup = () => {
 
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/10 px-2 py-2">
-                                                <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">Train accuracy</div>
-                                                <div className="mt-1 text-lg font-mono text-accent-primary">{formatAccuracyBadge(run.final_metrics?.accuracy)}</div>
+                                                <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">{primaryMetric.label}</div>
+                                                <div className="mt-1 text-lg font-mono text-accent-primary">{primaryMetricValue}</div>
                                             </div>
                                             <div className={`rounded-lg border px-2 py-2 ${
                                                 runValidation && runValidation.tested_images > 0
                                                     ? 'border-accent-success/35 bg-accent-success/10'
                                                     : 'border-graphite-700/70 bg-graphite-900/70'
                                             }`}>
-                                                <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">Validation accuracy</div>
+                                                <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">{validationCardLabel}</div>
                                                 <div className="mt-1 text-lg font-mono text-accent-success">{formatPct(runValidation?.accuracy_pct)}</div>
                                             </div>
                                         </div>
