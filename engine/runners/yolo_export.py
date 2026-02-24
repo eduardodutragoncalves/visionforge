@@ -1598,7 +1598,11 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
     profile = _target_profile(target_id)
     script_files = profile.get("script_files", [])
     bash_python_bootstrap = (
-        "PYTHON_BIN=\"${PYTHON_BIN:-python}\"\n"
+        "if [ -x \"./.venv/bin/python\" ]; then\n"
+        "  PYTHON_BIN=\"./.venv/bin/python\"\n"
+        "else\n"
+        "  PYTHON_BIN=\"${PYTHON_BIN:-python}\"\n"
+        "fi\n"
         "if ! command -v \"$PYTHON_BIN\" >/dev/null 2>&1; then\n"
         "  if command -v python3 >/dev/null 2>&1; then\n"
         "    PYTHON_BIN=\"python3\"\n"
@@ -1608,6 +1612,12 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         "  fi\n"
         "fi\n"
     )
+    powershell_python_bootstrap = (
+        "$PythonBin = \".\\.venv\\Scripts\\python.exe\"\n"
+        "if (-not (Test-Path $PythonBin)) {\n"
+        "  $PythonBin = \"python\"\n"
+        "}\n"
+    )
     for filename in script_files:
         target_path = package_dir / filename
         if filename.endswith(".ps1"):
@@ -1616,12 +1626,13 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                     "param(\n"
                     "  [Parameter(Mandatory=$true)][string]$ImagePath\n"
                     ")\n"
-                    "python .\\run_local.py $ImagePath\n",
+                    + powershell_python_bootstrap
+                    + "& $PythonBin .\\run_local.py $ImagePath\n",
                     encoding="utf-8",
                 )
             elif filename.startswith("validate_"):
                 target_path.write_text(
-                    "python .\\validate_batch.py\n",
+                    powershell_python_bootstrap + "& $PythonBin .\\validate_batch.py\n",
                     encoding="utf-8",
                 )
             elif filename.startswith("serve_"):
@@ -1630,7 +1641,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                     "  [string]$Host='0.0.0.0',\n"
                     "  [int]$Port=8090\n"
                     ")\n"
-                    "python .\\inference_server.py --host $Host --port $Port\n",
+                    + powershell_python_bootstrap
+                    + "& $PythonBin .\\inference_server.py --host $Host --port $Port\n",
                     encoding="utf-8",
                 )
             elif filename.startswith("example_"):
@@ -1640,10 +1652,11 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                     "  [double]$Conf=0.25,\n"
                     "  [string]$ServerUrl=''\n"
                     ")\n"
-                    "if ([string]::IsNullOrWhiteSpace($ServerUrl)) {\n"
-                    "  python .\\integration_example.py --source $SourcePath --conf $Conf\n"
+                    + powershell_python_bootstrap
+                    + "if ([string]::IsNullOrWhiteSpace($ServerUrl)) {\n"
+                    "  & $PythonBin .\\integration_example.py --source $SourcePath --conf $Conf\n"
                     "} else {\n"
-                    "  python .\\integration_example.py --source $SourcePath --conf $Conf --server-url $ServerUrl\n"
+                    "  & $PythonBin .\\integration_example.py --source $SourcePath --conf $Conf --server-url $ServerUrl\n"
                     "}\n",
                     encoding="utf-8",
                 )
@@ -1655,13 +1668,14 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                     "  [string]$ServerUrl='http://127.0.0.1:8090',\n"
                     "  [switch]$DisableServer\n"
                     ")\n"
-                    "$disableFlag = if ($DisableServer.IsPresent) { '--disable-server' } else { '' }\n"
-                    "python .\\demo_app.py --host $Host --port $Port --server-url $ServerUrl $disableFlag\n",
+                    + powershell_python_bootstrap
+                    + "$disableFlag = if ($DisableServer.IsPresent) { '--disable-server' } else { '' }\n"
+                    "& $PythonBin .\\demo_app.py --host $Host --port $Port --server-url $ServerUrl $disableFlag\n",
                     encoding="utf-8",
                 )
             else:
                 target_path.write_text(
-                    "python .\\run_local.py\n",
+                    powershell_python_bootstrap + "& $PythonBin .\\run_local.py\n",
                     encoding="utf-8",
                 )
             continue
