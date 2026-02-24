@@ -356,18 +356,29 @@ class Orchestrator:
         fallback_last_epoch = 0
         fallback_last_loss: Optional[float] = None
         fallback_last_accuracy: Optional[float] = None
+        fallback_last_map50: Optional[float] = None
+        fallback_last_map5095: Optional[float] = None
+        fallback_last_precision: Optional[float] = None
+        fallback_last_recall: Optional[float] = None
         expected_total_epochs = int(config.get("epochs", 0) or 0)
+        task_hint = str(config.get("task") or "").strip().lower()
+        base_model_hint = str(config.get("base_model") or config.get("model") or "").strip().lower()
+        is_classification_task = task_hint in {"classification", "classify"} or "-cls" in base_model_hint
 
         ansi_re = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
         epoch_re = re.compile(r"^\s*(\d{1,4})\s*/\s*(\d{1,4})\b")
         loss_re = re.compile(r"\b\d+(?:\.\d+)?G\s+([0-9]*\.?[0-9]+)\b")
         acc_re = re.compile(r"\ball\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\b")
+        det_re = re.compile(
+            r"\ball\s+\d+\s+\d+\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\b"
+        )
 
         # File handles
         with open(logs_path, "a") as f_log, open(metrics_path, "a") as f_metrics:
             
             async def read_stream(stream, is_stderr=False):
                 nonlocal saw_vf_metrics, fallback_last_epoch, fallback_last_loss, fallback_last_accuracy
+                nonlocal fallback_last_map50, fallback_last_map5095, fallback_last_precision, fallback_last_recall
                 while True:
                     line = await stream.readline()
                     if not line:
@@ -416,12 +427,23 @@ class Orchestrator:
                              # Fallback progress parser for Ultralytics logs without VF_EVENT metrics.
                              if framework == "ultralytics" and not saw_vf_metrics:
                                 clean_line = ansi_re.sub("", decoded_line).replace("\r", " ")
-                                acc_match = acc_re.search(clean_line)
-                                if acc_match:
-                                    try:
-                                        fallback_last_accuracy = float(acc_match.group(1))
-                                    except Exception:
-                                        pass
+                                if is_classification_task:
+                                    acc_match = acc_re.search(clean_line)
+                                    if acc_match:
+                                        try:
+                                            fallback_last_accuracy = float(acc_match.group(1))
+                                        except Exception:
+                                            pass
+                                else:
+                                    det_match = det_re.search(clean_line)
+                                    if det_match:
+                                        try:
+                                            fallback_last_precision = float(det_match.group(1))
+                                            fallback_last_recall = float(det_match.group(2))
+                                            fallback_last_map50 = float(det_match.group(3))
+                                            fallback_last_map5095 = float(det_match.group(4))
+                                        except Exception:
+                                            pass
 
                                 epoch_match = epoch_re.search(clean_line)
                                 if epoch_match:
@@ -451,9 +473,19 @@ class Orchestrator:
                                         "project_id": project_id,
                                         "epoch": epoch,
                                         "total_epochs": total_epochs,
-                                        "loss": fallback_last_loss if fallback_last_loss is not None else 0.0,
-                                        "accuracy": fallback_last_accuracy if fallback_last_accuracy is not None else 0.0
+                                        "loss": fallback_last_loss if fallback_last_loss is not None else 0.0
                                     }
+                                    if is_classification_task:
+                                        parsed_metric["accuracy"] = fallback_last_accuracy if fallback_last_accuracy is not None else 0.0
+                                    else:
+                                        if fallback_last_precision is not None:
+                                            parsed_metric["precision"] = fallback_last_precision
+                                        if fallback_last_recall is not None:
+                                            parsed_metric["recall"] = fallback_last_recall
+                                        if fallback_last_map50 is not None:
+                                            parsed_metric["map50"] = fallback_last_map50
+                                        if fallback_last_map5095 is not None:
+                                            parsed_metric["map5095"] = fallback_last_map5095
                                     fallback_last_epoch = epoch
 
                                     f_metrics.write(json.dumps(parsed_metric) + "\n")

@@ -61,9 +61,14 @@ export const LiveRun = () => {
     const config = run?.config ?? {};
     const runName = run?.name ?? '';
     const modelName = String(config.base_model || config.model || '').toLowerCase();
+    const configuredTask = String(config.task || '').toLowerCase();
     const hasMapMetric = typeof lastMetric?.map50 === 'number' && !Number.isNaN(lastMetric.map50);
     const hasAccuracyMetric = typeof lastMetric?.accuracy === 'number' && !Number.isNaN(lastMetric.accuracy);
-    const isClassificationRun = modelName.includes('-cls') || (!modelName && !hasMapMetric && hasAccuracyMetric);
+    const isClassificationRun =
+        configuredTask === 'classification' ||
+        configuredTask === 'classify' ||
+        modelName.includes('-cls') ||
+        (!modelName && !hasMapMetric && hasAccuracyMetric);
     const secondaryMetricLabel = isClassificationRun ? 'Accuracy' : 'mAP50';
     const secondaryMetricKey = isClassificationRun ? 'accuracy' : 'map50';
     const secondaryMetricValue = formatMetric(
