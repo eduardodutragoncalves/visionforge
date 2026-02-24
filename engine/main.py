@@ -21,6 +21,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("VisionForge")
 
+
+def _resolve_cors_origins() -> list[str]:
+    raw = (os.environ.get("VISIONFORGE_CORS_ORIGINS") or "").strip()
+    if raw:
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    return [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "null",  # file:// renderer origin in packaged desktop builds
+    ]
+
+
 def _configure_file_logging():
     log_path = os.environ.get("VISIONFORGE_LOG_PATH")
     if log_path:
@@ -89,10 +103,13 @@ app = FastAPI(
 )
 
 # CORS configuration
+cors_origins = _resolve_cors_origins()
+logger.info("CORS origins: %s", cors_origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to Electron's origin
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

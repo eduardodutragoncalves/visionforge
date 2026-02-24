@@ -154,6 +154,7 @@ type DuplicateResolutionAction = 'ignore' | 'delete_keep_one' | 'delete_all';
 
 const API_BASE_URL = ENGINE_HTTP_URL;
 const IMAGE_PAGE_SIZE = 500;
+const EMPTY_CLASSES: DatasetClass[] = [];
 const CLASSIFICATION_INITIAL_RENDER = 120;
 const CLASSIFICATION_RENDER_CHUNK = 80;
 const DETECTION_INITIAL_RENDER = 90;
@@ -392,7 +393,7 @@ export const ProjectDataset = () => {
     const pendingRef = useRef<PendingSave[]>([]);
     const flushRef = useRef(false);
     const undoRef = useRef<LabelChange[][]>([]);
-    const classes = dataset?.classes ?? [];
+    const classes = dataset?.classes ?? EMPTY_CLASSES;
 
     const classMap = useMemo(() => new Map(classes.map((cls) => [cls.id, cls.name])), [classes]);
     const classColorMap = useMemo(() => new Map(classes.map((cls) => [cls.id, cls.color || '#2fb8ff'])), [classes]);
@@ -1566,9 +1567,13 @@ export const ProjectDataset = () => {
     }, [dataset?.task, detectionVisibleImages, activeImageId, previewImageId]);
 
     useEffect(() => {
-        setDetectionLabeledClassFilters((prev) =>
-            prev.filter((classId) => classes.some((cls) => cls.id === classId))
-        );
+        setDetectionLabeledClassFilters((prev) => {
+            const next = prev.filter((classId) => classes.some((cls) => cls.id === classId));
+            if (next.length === prev.length && next.every((value, index) => value === prev[index])) {
+                return prev;
+            }
+            return next;
+        });
     }, [classes]);
 
     useEffect(() => {
