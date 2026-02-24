@@ -444,198 +444,645 @@ def _build_readme(
 def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str):
     run_py = package_dir / "run_local.py"
     validate_py = package_dir / "validate_batch.py"
+    example_py = package_dir / "integration_example.py"
+    demo_py = package_dir / "demo_app.py"
 
-    run_py.write_text(
-        "import sys\n"
-        "from pathlib import Path\n"
-        "from ultralytics import YOLO\n\n"
-        "def main():\n"
-        "    if len(sys.argv) < 2:\n"
-        "        print('Usage: python run_local.py <image_path>')\n"
-        "        sys.exit(1)\n"
-        "    image_path = Path(sys.argv[1]).expanduser().resolve()\n"
-        "    if not image_path.exists():\n"
-        "        print(f'Image not found: {image_path}')\n"
-        "        sys.exit(1)\n"
-        f"    model_path = Path(__file__).resolve().parent / 'artifacts' / '{model_filename}'\n"
-        "    model = YOLO(str(model_path))\n"
-        "    results = model.predict(source=str(image_path), verbose=False)\n"
-        "    if not results:\n"
-        "        print('No results produced')\n"
-        "        return\n"
-        "    result = results[0]\n"
-        "    if getattr(result, 'probs', None) is not None:\n"
-        "        print('Task: classify')\n"
-        "        probs = result.probs\n"
-        "        if hasattr(probs, 'top5') and hasattr(probs, 'top5conf'):\n"
-        "            for cls_id, conf in zip(probs.top5, probs.top5conf):\n"
-        "                print(f'  class={result.names[int(cls_id)]} conf={float(conf):.4f}')\n"
-        "        else:\n"
-        "            data = getattr(probs, 'data', probs)\n"
-        "            values = data.tolist() if hasattr(data, 'tolist') else list(data)\n"
-        "            ranked = sorted(enumerate(values), key=lambda x: x[1], reverse=True)[:5]\n"
-        "            for cls_id, conf in ranked:\n"
-        "                print(f'  class={result.names[int(cls_id)]} conf={float(conf):.4f}')\n"
-        "        return\n"
-        "    print('Task: detect')\n"
-        "    boxes = list(getattr(result, 'boxes', []) or [])\n"
-        "    if not boxes:\n"
-        "        print('  no detections')\n"
-        "        return\n"
-        "    ranked = sorted(boxes, key=lambda b: float(b.conf), reverse=True)\n"
-        "    for box in ranked[:10]:\n"
-        "        class_id = int(box.cls)\n"
-        "        conf = float(box.conf)\n"
-        "        print(f'  class={result.names[class_id]} conf={conf:.4f}')\n\n"
-        "if __name__ == '__main__':\n"
-        "    main()\n",
-        encoding="utf-8"
-    )
+    run_script = textwrap.dedent(
+        """
+        import sys
+        from pathlib import Path
 
-    validate_py.write_text(
-        "import argparse\n"
-        "import json\n"
-        "from pathlib import Path\n"
-        "from typing import Any, Dict, List, Optional\n"
-        "from ultralytics import YOLO\n\n"
-        "def normalize_class(value: Any) -> str:\n"
-        "    raw = str(value or '').strip().lower()\n"
-        "    return ' '.join(''.join(ch for ch in raw if ch.isalnum() or ch == ' ').split())\n\n"
-        "def identity_from_result(result: Any) -> Optional[Dict[str, Any]]:\n"
-        "    if getattr(result, 'probs', None) is not None:\n"
-        "        probs = result.probs\n"
-        "        if hasattr(probs, 'top5') and hasattr(probs, 'top5conf') and probs.top5:\n"
-        "            cls_id = int(probs.top5[0])\n"
-        "            conf = float(probs.top5conf[0])\n"
-        "        else:\n"
-        "            data = getattr(probs, 'data', probs)\n"
-        "            values = data.tolist() if hasattr(data, 'tolist') else list(data)\n"
-        "            if not values:\n"
-        "                return None\n"
-        "            cls_id = int(max(range(len(values)), key=lambda i: values[i]))\n"
-        "            conf = float(values[cls_id])\n"
-        "        class_name = result.names[int(cls_id)]\n"
-        "        return {\n"
-        "            'task': 'classify',\n"
-        "            'identity': f\"cls:{normalize_class(class_name)}\",\n"
-        "            'class_name': class_name,\n"
-        "            'class_id': cls_id,\n"
-        "            'confidence': conf,\n"
-        "        }\n"
-        "    boxes = list(getattr(result, 'boxes', []) or [])\n"
-        "    if not boxes:\n"
-        "        return None\n"
-        "    top = sorted(boxes, key=lambda b: float(b.conf), reverse=True)[0]\n"
-        "    class_id = int(top.cls)\n"
-        "    class_name = result.names[class_id]\n"
-        "    return {\n"
-        "        'task': 'detect',\n"
-        "        'identity': f\"det:{normalize_class(class_name)}\",\n"
-        "        'class_name': class_name,\n"
-        "        'class_id': class_id,\n"
-        "        'confidence': float(top.conf),\n"
-        "    }\n\n"
-        "def main():\n"
-        "    parser = argparse.ArgumentParser()\n"
-        "    parser.add_argument('--model', default='artifacts/model.onnx')\n"
-        "    parser.add_argument('--expected', default='validation/expected_results.json')\n"
-        "    parser.add_argument('--images-dir', default='validation/images')\n"
-        "    parser.add_argument('--out', default='validation/validation_report.json')\n"
-        "    args = parser.parse_args()\n\n"
-        "    package_dir = Path(__file__).resolve().parent\n"
-        "    model_path = (package_dir / args.model).resolve()\n"
-        "    expected_path = (package_dir / args.expected).resolve()\n"
-        "    images_dir = (package_dir / args.images_dir).resolve()\n"
-        "    out_path = (package_dir / args.out).resolve()\n\n"
-        "    if not model_path.exists():\n"
-        "        raise FileNotFoundError(f'Model not found: {model_path}')\n"
-        "    if not expected_path.exists():\n"
-        "        raise FileNotFoundError(f'Expected manifest not found: {expected_path}')\n"
-        "    if not images_dir.exists():\n"
-        "        raise FileNotFoundError(f'Validation images directory not found: {images_dir}')\n\n"
-        "    expected_data = json.loads(expected_path.read_text(encoding='utf-8'))\n"
-        "    entries = expected_data.get('entries', []) if isinstance(expected_data, dict) else []\n"
-        "    if not isinstance(entries, list):\n"
-        "        entries = []\n\n"
-        "    model = YOLO(str(model_path))\n"
-        "    report_entries: List[Dict[str, Any]] = []\n"
-        "    evaluated = 0\n"
-        "    correct = 0\n"
-        "    skipped = 0\n"
-        "    missing = 0\n\n"
-        "    for item in entries:\n"
-        "        if not isinstance(item, dict):\n"
-        "            continue\n"
-        "        image_file = str(item.get('image_file') or '').strip()\n"
-        "        expected_identity = item.get('expected_identity')\n"
-        "        image_path = (images_dir / image_file).resolve()\n"
-        "        if not image_file or not image_path.exists():\n"
-        "            missing += 1\n"
-        "            report_entries.append({\n"
-        "                'image_file': image_file,\n"
-        "                'status': 'missing_image',\n"
-        "                'expected_identity': expected_identity,\n"
-        "            })\n"
-        "            continue\n"
-        "        if not expected_identity:\n"
-        "            skipped += 1\n"
-        "            report_entries.append({\n"
-        "                'image_file': image_file,\n"
-        "                'status': 'skipped_no_expected',\n"
-        "                'expected_identity': None,\n"
-        "            })\n"
-        "            continue\n"
-        "        results = model.predict(source=str(image_path), verbose=False)\n"
-        "        if not results:\n"
-        "            report_entries.append({\n"
-        "                'image_file': image_file,\n"
-        "                'status': 'no_result',\n"
-        "                'expected_identity': expected_identity,\n"
-        "            })\n"
-        "            continue\n"
-        "        pred = identity_from_result(results[0])\n"
-        "        pred_identity = pred.get('identity') if pred else None\n"
-        "        is_match = bool(pred_identity) and str(pred_identity) == str(expected_identity)\n"
-        "        evaluated += 1\n"
-        "        if is_match:\n"
-        "            correct += 1\n"
-        "        report_entries.append({\n"
-        "            'image_file': image_file,\n"
-        "            'status': 'evaluated',\n"
-        "            'expected_identity': expected_identity,\n"
-        "            'predicted_identity': pred_identity,\n"
-        "            'predicted_task': pred.get('task') if pred else None,\n"
-        "            'predicted_class_name': pred.get('class_name') if pred else None,\n"
-        "            'predicted_confidence': pred.get('confidence') if pred else None,\n"
-        "            'match': is_match,\n"
-        "        })\n\n"
-        "    accuracy_pct = (correct / evaluated * 100.0) if evaluated > 0 else None\n"
-        "    report = {\n"
-        "        'generated_at': __import__('datetime').datetime.utcnow().isoformat(),\n"
-        "        'model_path': str(model_path),\n"
-        "        'expected_path': str(expected_path),\n"
-        "        'images_dir': str(images_dir),\n"
-        "        'total_manifest_entries': len(entries),\n"
-        "        'evaluated': evaluated,\n"
-        "        'correct': correct,\n"
-        "        'incorrect': max(0, evaluated - correct),\n"
-        "        'skipped_no_expected': skipped,\n"
-        "        'missing_images': missing,\n"
-        "        'accuracy_pct': accuracy_pct,\n"
-        "        'entries': report_entries,\n"
-        "    }\n"
-        "    out_path.parent.mkdir(parents=True, exist_ok=True)\n"
-        "    out_path.write_text(json.dumps(report, indent=2), encoding='utf-8')\n"
-        "    print(f\"Validation report saved: {out_path}\")\n"
-        "    print(f\"Evaluated: {evaluated} | Correct: {correct} | Incorrect: {max(0, evaluated - correct)}\")\n"
-        "    if accuracy_pct is None:\n"
-        "        print('Accuracy: n/a (no expected labels available)')\n"
-        "    else:\n"
-        "        print(f\"Accuracy: {accuracy_pct:.2f}%\")\n\n"
-        "if __name__ == '__main__':\n"
-        "    main()\n",
-        encoding="utf-8"
-    )
+        from ultralytics import YOLO
+
+
+        def main():
+            if len(sys.argv) < 2:
+                print("Usage: python run_local.py <image_path>")
+                sys.exit(1)
+            image_path = Path(sys.argv[1]).expanduser().resolve()
+            if not image_path.exists():
+                print(f"Image not found: {image_path}")
+                sys.exit(1)
+            model_path = Path(__file__).resolve().parent / "artifacts" / "__MODEL_FILENAME__"
+            model = YOLO(str(model_path))
+            results = model.predict(source=str(image_path), verbose=False)
+            if not results:
+                print("No results produced")
+                return
+            result = results[0]
+            if getattr(result, "probs", None) is not None:
+                print("Task: classify")
+                probs = result.probs
+                if hasattr(probs, "top5") and hasattr(probs, "top5conf"):
+                    for cls_id, conf in zip(probs.top5, probs.top5conf):
+                        print(f"  class={result.names[int(cls_id)]} conf={float(conf):.4f}")
+                else:
+                    data = getattr(probs, "data", probs)
+                    values = data.tolist() if hasattr(data, "tolist") else list(data)
+                    ranked = sorted(enumerate(values), key=lambda item: item[1], reverse=True)[:5]
+                    for cls_id, conf in ranked:
+                        print(f"  class={result.names[int(cls_id)]} conf={float(conf):.4f}")
+                return
+            print("Task: detect")
+            boxes = list(getattr(result, "boxes", []) or [])
+            if not boxes:
+                print("  no detections")
+                return
+            ranked = sorted(boxes, key=lambda box: float(box.conf), reverse=True)
+            for box in ranked[:10]:
+                class_id = int(box.cls)
+                conf = float(box.conf)
+                print(f"  class={result.names[class_id]} conf={conf:.4f}")
+
+
+        if __name__ == "__main__":
+            main()
+        """
+    ).strip() + "\n"
+    run_py.write_text(run_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
+
+    validate_script = textwrap.dedent(
+        """
+        import argparse
+        import json
+        import shutil
+        from pathlib import Path
+        from typing import Any, Dict, List, Optional
+
+        import cv2
+        from ultralytics import YOLO
+
+
+        def normalize_class(value: Any) -> str:
+            raw = str(value or "").strip().lower()
+            return " ".join("".join(ch for ch in raw if ch.isalnum() or ch == " ").split())
+
+
+        def identity_from_result(result: Any) -> Optional[Dict[str, Any]]:
+            if getattr(result, "probs", None) is not None:
+                probs = result.probs
+                if hasattr(probs, "top5") and hasattr(probs, "top5conf") and probs.top5:
+                    cls_id = int(probs.top5[0])
+                    conf = float(probs.top5conf[0])
+                else:
+                    data = getattr(probs, "data", probs)
+                    values = data.tolist() if hasattr(data, "tolist") else list(data)
+                    if not values:
+                        return None
+                    cls_id = int(max(range(len(values)), key=lambda idx: values[idx]))
+                    conf = float(values[cls_id])
+                class_name = result.names[int(cls_id)]
+                return {
+                    "task": "classify",
+                    "identity": f"cls:{normalize_class(class_name)}",
+                    "class_name": class_name,
+                    "class_id": cls_id,
+                    "confidence": conf,
+                }
+            boxes = list(getattr(result, "boxes", []) or [])
+            if not boxes:
+                return None
+            top = sorted(boxes, key=lambda box: float(box.conf), reverse=True)[0]
+            class_id = int(top.cls)
+            class_name = result.names[class_id]
+            return {
+                "task": "detect",
+                "identity": f"det:{normalize_class(class_name)}",
+                "class_name": class_name,
+                "class_id": class_id,
+                "confidence": float(top.conf),
+            }
+
+
+        def to_relative(base: Path, path: Path) -> str:
+            try:
+                return str(path.relative_to(base))
+            except ValueError:
+                return str(path)
+
+
+        def main():
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--model", default="artifacts/__MODEL_FILENAME__")
+            parser.add_argument("--expected", default="validation/expected_results.json")
+            parser.add_argument("--images-dir", default="validation/images")
+            parser.add_argument("--out", default="validation/validation_report.json")
+            parser.add_argument("--viz-dir", default="validation/predictions")
+            args = parser.parse_args()
+
+            package_dir = Path(__file__).resolve().parent
+            model_path = (package_dir / args.model).resolve()
+            expected_path = (package_dir / args.expected).resolve()
+            images_dir = (package_dir / args.images_dir).resolve()
+            out_path = (package_dir / args.out).resolve()
+            viz_dir = (package_dir / args.viz_dir).resolve()
+
+            if not model_path.exists():
+                raise FileNotFoundError(f"Model not found: {model_path}")
+            if not expected_path.exists():
+                raise FileNotFoundError(f"Expected manifest not found: {expected_path}")
+            if not images_dir.exists():
+                raise FileNotFoundError(f"Validation images directory not found: {images_dir}")
+            viz_dir.mkdir(parents=True, exist_ok=True)
+
+            expected_data = json.loads(expected_path.read_text(encoding="utf-8"))
+            entries = expected_data.get("entries", []) if isinstance(expected_data, dict) else []
+            if not isinstance(entries, list):
+                entries = []
+
+            model = YOLO(str(model_path))
+            report_entries: List[Dict[str, Any]] = []
+            evaluated = 0
+            correct = 0
+            skipped = 0
+            missing = 0
+            prediction_errors = 0
+
+            for item in entries:
+                if not isinstance(item, dict):
+                    continue
+                image_file = str(item.get("image_file") or "").strip()
+                expected_identity = item.get("expected_identity")
+                image_path = (images_dir / image_file).resolve()
+                viz_path: Optional[Path] = None
+                viz_rel: Optional[str] = None
+                if image_file:
+                    viz_path = (viz_dir / image_file).resolve()
+                    viz_path.parent.mkdir(parents=True, exist_ok=True)
+                    viz_rel = to_relative(package_dir, viz_path)
+
+                if not image_file or not image_path.exists():
+                    missing += 1
+                    report_entries.append(
+                        {
+                            "image_file": image_file,
+                            "status": "missing_image",
+                            "expected_identity": expected_identity,
+                            "visualization_image": viz_rel,
+                        }
+                    )
+                    continue
+
+                if not expected_identity:
+                    skipped += 1
+                    if viz_path is not None:
+                        shutil.copy2(str(image_path), str(viz_path))
+                    report_entries.append(
+                        {
+                            "image_file": image_file,
+                            "status": "skipped_no_expected",
+                            "expected_identity": None,
+                            "visualization_image": viz_rel,
+                        }
+                    )
+                    continue
+
+                try:
+                    results = model.predict(source=str(image_path), verbose=False)
+                except Exception as exc:
+                    prediction_errors += 1
+                    if viz_path is not None:
+                        shutil.copy2(str(image_path), str(viz_path))
+                    report_entries.append(
+                        {
+                            "image_file": image_file,
+                            "status": "prediction_error",
+                            "error": str(exc),
+                            "expected_identity": expected_identity,
+                            "visualization_image": viz_rel,
+                        }
+                    )
+                    continue
+
+                if not results:
+                    if viz_path is not None:
+                        shutil.copy2(str(image_path), str(viz_path))
+                    report_entries.append(
+                        {
+                            "image_file": image_file,
+                            "status": "no_result",
+                            "expected_identity": expected_identity,
+                            "visualization_image": viz_rel,
+                        }
+                    )
+                    continue
+
+                result = results[0]
+                if viz_path is not None:
+                    annotated = result.plot()
+                    cv2.imwrite(str(viz_path), annotated)
+                pred = identity_from_result(result)
+                pred_identity = pred.get("identity") if pred else None
+                is_match = bool(pred_identity) and str(pred_identity) == str(expected_identity)
+                evaluated += 1
+                if is_match:
+                    correct += 1
+                report_entries.append(
+                    {
+                        "image_file": image_file,
+                        "status": "evaluated",
+                        "expected_identity": expected_identity,
+                        "predicted_identity": pred_identity,
+                        "predicted_task": pred.get("task") if pred else None,
+                        "predicted_class_name": pred.get("class_name") if pred else None,
+                        "predicted_confidence": pred.get("confidence") if pred else None,
+                        "match": is_match,
+                        "visualization_image": viz_rel,
+                    }
+                )
+
+            accuracy_pct = (correct / evaluated * 100.0) if evaluated > 0 else None
+            report = {
+                "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
+                "model_path": str(model_path),
+                "expected_path": str(expected_path),
+                "images_dir": str(images_dir),
+                "visualizations_dir": str(viz_dir),
+                "total_manifest_entries": len(entries),
+                "evaluated": evaluated,
+                "correct": correct,
+                "incorrect": max(0, evaluated - correct),
+                "skipped_no_expected": skipped,
+                "missing_images": missing,
+                "prediction_errors": prediction_errors,
+                "accuracy_pct": accuracy_pct,
+                "entries": report_entries,
+            }
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            print(f"Validation report saved: {out_path}")
+            print(f"Annotated images saved: {viz_dir}")
+            print(f"Evaluated: {evaluated} | Correct: {correct} | Incorrect: {max(0, evaluated - correct)}")
+            if prediction_errors > 0:
+                print(f"Prediction errors: {prediction_errors}")
+            if accuracy_pct is None:
+                print("Accuracy: n/a (no expected labels available)")
+            else:
+                print(f"Accuracy: {accuracy_pct:.2f}%")
+
+
+        if __name__ == "__main__":
+            main()
+        """
+    ).strip() + "\n"
+    validate_py.write_text(validate_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
+
+    integration_script = textwrap.dedent(
+        """
+        import argparse
+        import time
+        from pathlib import Path
+
+        import cv2
+        from ultralytics import YOLO
+
+
+        IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+        VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
+
+
+        def summarize(result):
+            if getattr(result, "probs", None) is not None:
+                probs = result.probs
+                print("Task: classify")
+                if hasattr(probs, "top5") and hasattr(probs, "top5conf"):
+                    for cls_id, conf in zip(probs.top5, probs.top5conf):
+                        print(f"  class={result.names[int(cls_id)]} conf={float(conf):.4f}")
+                return
+            boxes = list(getattr(result, "boxes", []) or [])
+            print("Task: detect")
+            if not boxes:
+                print("  no detections")
+                return
+            ranked = sorted(boxes, key=lambda box: float(box.conf), reverse=True)
+            for box in ranked[:10]:
+                print(f"  class={result.names[int(box.cls)]} conf={float(box.conf):.4f}")
+
+
+        def infer_image(model, image_path: Path, out_dir: Path, conf: float):
+            results = model.predict(source=str(image_path), verbose=False, conf=conf)
+            if not results:
+                raise RuntimeError("No result produced for image")
+            result = results[0]
+            annotated = result.plot()
+            out_path = out_dir / f"{image_path.stem}_pred.jpg"
+            cv2.imwrite(str(out_path), annotated)
+            summarize(result)
+            return out_path
+
+
+        def infer_video(model, video_path: Path, out_dir: Path, conf: float):
+            cap = cv2.VideoCapture(str(video_path))
+            if not cap.isOpened():
+                raise RuntimeError(f"Could not open video: {video_path}")
+
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0) or 30.0
+            if width <= 0 or height <= 0:
+                cap.release()
+                raise RuntimeError("Invalid video dimensions")
+
+            out_path = out_dir / f"{video_path.stem}_pred.mp4"
+            writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+            if not writer.isOpened():
+                out_path = out_dir / f"{video_path.stem}_pred.avi"
+                writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"XVID"), fps, (width, height))
+            if not writer.isOpened():
+                cap.release()
+                raise RuntimeError("Could not create output video writer")
+
+            total_frames = 0
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                results = model.predict(source=frame, verbose=False, conf=conf)
+                if results:
+                    writer.write(results[0].plot())
+                else:
+                    writer.write(frame)
+                total_frames += 1
+                if total_frames % 60 == 0:
+                    print(f"Processed {total_frames} frames...")
+
+            cap.release()
+            writer.release()
+            return out_path, total_frames
+
+
+        def main():
+            parser = argparse.ArgumentParser(description="VisionForge integration example for image and video inference")
+            parser.add_argument("--source", required=True, help="Image or video file path")
+            parser.add_argument("--model", default="artifacts/__MODEL_FILENAME__", help="Relative model path inside package")
+            parser.add_argument("--out-dir", default="example_outputs", help="Output directory for annotated files")
+            parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
+            args = parser.parse_args()
+
+            package_dir = Path(__file__).resolve().parent
+            source_path = Path(args.source).expanduser().resolve()
+            model_path = (package_dir / args.model).resolve()
+            out_dir = (package_dir / args.out_dir).resolve()
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            if not source_path.exists():
+                raise FileNotFoundError(f"Source not found: {source_path}")
+            if not model_path.exists():
+                raise FileNotFoundError(f"Model not found: {model_path}")
+
+            model = YOLO(str(model_path))
+            suffix = source_path.suffix.lower()
+            started = time.time()
+
+            if suffix in IMAGE_EXTENSIONS:
+                out_path = infer_image(model, source_path, out_dir, args.conf)
+                print(f"Annotated image saved: {out_path}")
+            elif suffix in VIDEO_EXTENSIONS:
+                out_path, frames = infer_video(model, source_path, out_dir, args.conf)
+                print(f"Annotated video saved: {out_path}")
+                print(f"Frames processed: {frames}")
+            else:
+                raise ValueError(f"Unsupported source extension: {suffix}")
+
+            print(f"Done in {time.time() - started:.2f}s")
+
+
+        if __name__ == "__main__":
+            main()
+        """
+    ).strip() + "\n"
+    example_py.write_text(integration_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
+
+    demo_script = textwrap.dedent(
+        """
+        import argparse
+        import time
+        from pathlib import Path
+        from typing import Optional
+
+        import cv2
+        from flask import Flask, render_template_string, request, send_from_directory
+        from ultralytics import YOLO
+
+
+        PACKAGE_DIR = Path(__file__).resolve().parent
+        MODEL_PATH = PACKAGE_DIR / "artifacts" / "__MODEL_FILENAME__"
+        ASSET_DIR = PACKAGE_DIR / "assets"
+        UPLOAD_DIR = PACKAGE_DIR / "demo_uploads"
+        OUTPUT_DIR = PACKAGE_DIR / "demo_outputs"
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        if (ASSET_DIR / "visionforge-logo.png").exists():
+            LOGO_FILE = "visionforge-logo.png"
+        elif (ASSET_DIR / "visionforge-logo.svg").exists():
+            LOGO_FILE = "visionforge-logo.svg"
+        else:
+            LOGO_FILE = None
+
+        MODEL = YOLO(str(MODEL_PATH))
+        APP = Flask(__name__)
+
+        TEMPLATE = \"\"\"
+        <!doctype html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>VisionForge Demo</title>
+            <style>
+                :root { color-scheme: light; }
+                body { margin: 0; font-family: "Segoe UI", "Noto Sans", sans-serif; background: radial-gradient(circle at top, #e6f1ff, #f7f9fc 40%, #ffffff 100%); color: #0f172a; }
+                .container { max-width: 980px; margin: 0 auto; padding: 28px 18px 36px; }
+                .hero { display: flex; gap: 14px; align-items: center; padding: 16px; border: 1px solid #cbd5e1; border-radius: 14px; background: rgba(255, 255, 255, 0.85); }
+                .logo { width: 56px; height: 56px; object-fit: contain; }
+                .title { margin: 0; font-size: 24px; letter-spacing: 0.01em; }
+                .subtitle { margin: 6px 0 0; color: #334155; font-size: 14px; }
+                .notice { margin-top: 14px; padding: 10px 12px; border: 1px solid #94a3b8; border-radius: 10px; background: #f8fafc; font-size: 14px; }
+                .grid { margin-top: 18px; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+                .card { border: 1px solid #cbd5e1; border-radius: 14px; padding: 14px; background: rgba(255, 255, 255, 0.92); }
+                .card h3 { margin: 0 0 10px; font-size: 16px; }
+                .card p { margin: 0 0 10px; color: #475569; font-size: 13px; }
+                .button { margin-top: 10px; padding: 10px 14px; border: 0; border-radius: 10px; background: #0f172a; color: #fff; cursor: pointer; font-weight: 600; }
+                .button:hover { background: #1e293b; }
+                .result { margin-top: 18px; border: 1px solid #cbd5e1; border-radius: 14px; padding: 14px; background: #fff; }
+                .result h3 { margin: 0 0 10px; }
+                .result img, .result video { width: 100%; border-radius: 10px; background: #020617; }
+                .hint { margin-top: 12px; color: #475569; font-size: 12px; }
+            </style>
+        </head>
+        <body>
+            <main class="container">
+                <section class="hero">
+                    {% if logo_url %}
+                        <img class="logo" src="{{ logo_url }}" alt="VisionForge logo" />
+                    {% endif %}
+                    <div>
+                        <h1 class="title">VisionForge Deployment Demo</h1>
+                        <p class="subtitle">Test custom images and videos directly on this target package.</p>
+                    </div>
+                </section>
+
+                {% if message %}
+                    <div class="notice">{{ message }}</div>
+                {% endif %}
+
+                <section class="grid">
+                    <form class="card" action="/predict/image" method="post" enctype="multipart/form-data">
+                        <h3>Image Inference</h3>
+                        <p>Upload one image and get an annotated output.</p>
+                        <input type="file" name="image_file" accept="image/*" required />
+                        <button class="button" type="submit">Run Image Inference</button>
+                    </form>
+
+                    <form class="card" action="/predict/video" method="post" enctype="multipart/form-data">
+                        <h3>Video Inference</h3>
+                        <p>Upload one video and get an annotated output video.</p>
+                        <input type="file" name="video_file" accept="video/*" required />
+                        <button class="button" type="submit">Run Video Inference</button>
+                    </form>
+                </section>
+
+                {% if image_output %}
+                    <section class="result">
+                        <h3>Image Output</h3>
+                        <img src="/outputs/{{ image_output }}" alt="Annotated image" />
+                    </section>
+                {% endif %}
+
+                {% if video_output %}
+                    <section class="result">
+                        <h3>Video Output</h3>
+                        <video controls>
+                            <source src="/outputs/{{ video_output }}" type="video/mp4" />
+                        </video>
+                    </section>
+                {% endif %}
+
+                <p class="hint">Output files are stored in <code>demo_outputs/</code>.</p>
+            </main>
+        </body>
+        </html>
+        \"\"\"
+
+
+        def render_page(message: str = "", image_output: Optional[str] = None, video_output: Optional[str] = None):
+            logo_url = f"/assets/{LOGO_FILE}" if LOGO_FILE else None
+            return render_template_string(
+                TEMPLATE,
+                logo_url=logo_url,
+                message=message,
+                image_output=image_output,
+                video_output=video_output,
+            )
+
+
+        def infer_image_file(image_path: Path) -> str:
+            results = MODEL.predict(source=str(image_path), verbose=False)
+            if not results:
+                raise RuntimeError("No inference result for image")
+            annotated = results[0].plot()
+            out_name = f"{image_path.stem}_pred_{int(time.time() * 1000)}.jpg"
+            out_path = OUTPUT_DIR / out_name
+            cv2.imwrite(str(out_path), annotated)
+            return out_name
+
+
+        def infer_video_file(video_path: Path) -> str:
+            cap = cv2.VideoCapture(str(video_path))
+            if not cap.isOpened():
+                raise RuntimeError(f"Could not open video: {video_path}")
+
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0) or 30.0
+            if width <= 0 or height <= 0:
+                cap.release()
+                raise RuntimeError("Invalid video dimensions")
+
+            base_name = f"{video_path.stem}_pred_{int(time.time() * 1000)}"
+            out_name = f"{base_name}.mp4"
+            out_path = OUTPUT_DIR / out_name
+            writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+            if not writer.isOpened():
+                out_name = f"{base_name}.avi"
+                out_path = OUTPUT_DIR / out_name
+                writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"XVID"), fps, (width, height))
+            if not writer.isOpened():
+                cap.release()
+                raise RuntimeError("Could not create output video writer")
+
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                results = MODEL.predict(source=frame, verbose=False)
+                writer.write(results[0].plot() if results else frame)
+
+            cap.release()
+            writer.release()
+            return out_name
+
+
+        @APP.get("/")
+        def home():
+            return render_page()
+
+
+        @APP.get("/assets/<path:filename>")
+        def assets(filename: str):
+            return send_from_directory(str(ASSET_DIR), filename)
+
+
+        @APP.get("/outputs/<path:filename>")
+        def outputs(filename: str):
+            return send_from_directory(str(OUTPUT_DIR), filename)
+
+
+        @APP.post("/predict/image")
+        def predict_image():
+            file = request.files.get("image_file")
+            if file is None or not file.filename:
+                return render_page(message="Select an image file first.")
+            suffix = Path(file.filename).suffix.lower() or ".jpg"
+            input_path = UPLOAD_DIR / f"upload_image_{int(time.time() * 1000)}{suffix}"
+            file.save(str(input_path))
+            try:
+                out_name = infer_image_file(input_path)
+            except Exception as exc:
+                return render_page(message=f"Image inference failed: {exc}")
+            return render_page(message="Image inference completed.", image_output=out_name)
+
+
+        @APP.post("/predict/video")
+        def predict_video():
+            file = request.files.get("video_file")
+            if file is None or not file.filename:
+                return render_page(message="Select a video file first.")
+            suffix = Path(file.filename).suffix.lower() or ".mp4"
+            input_path = UPLOAD_DIR / f"upload_video_{int(time.time() * 1000)}{suffix}"
+            file.save(str(input_path))
+            try:
+                out_name = infer_video_file(input_path)
+            except Exception as exc:
+                return render_page(message=f"Video inference failed: {exc}")
+            return render_page(message="Video inference completed.", video_output=out_name)
+
+
+        def main():
+            parser = argparse.ArgumentParser(description="VisionForge demo UI")
+            parser.add_argument("--host", default="127.0.0.1")
+            parser.add_argument("--port", type=int, default=7860)
+            args = parser.parse_args()
+            print(f"VisionForge demo running at http://{args.host}:{args.port}")
+            APP.run(host=args.host, port=args.port, debug=False)
+
+
+        if __name__ == "__main__":
+            main()
+        """
+    ).strip() + "\n"
+    demo_py.write_text(demo_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
 
     profile = _target_profile(target_id)
     script_files = profile.get("script_files", [])
@@ -676,6 +1123,35 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 encoding="utf-8",
             )
         target_path.chmod(0o755)
+
+
+def _write_branding_assets(package_dir: Path):
+    assets_dir = package_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo_root / "apps" / "desktop" / "public" / "branding" / "ai-brain-icon-256.png",
+        repo_root / "apps" / "desktop" / "public" / "branding" / "ai-brain-icon.png",
+    ]
+
+    for source in candidates:
+        if source.exists():
+            shutil.copy2(str(source), str(assets_dir / "visionforge-logo.png"))
+            return
+
+    fallback_logo = assets_dir / "visionforge-logo.svg"
+    fallback_logo.write_text(
+        textwrap.dedent(
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96">
+              <rect width="320" height="96" rx="16" fill="#0f172a"/>
+              <text x="160" y="58" text-anchor="middle" font-size="32" font-family="Segoe UI, Arial" fill="#f8fafc">VisionForge</text>
+            </svg>
+            """
+        ).strip() + "\n",
+        encoding="utf-8",
+    )
 
 
 def _build_package_zip(package_dir: Path) -> Path:
@@ -792,6 +1268,9 @@ def main():
 
         emit_event("export/progress", {"message": "Writing runtime scripts...", "stage": "scripts", "progress": 82})
         _write_runner_scripts(package_dir, model_filename, args.target_id)
+
+        emit_event("export/progress", {"message": "Copying branding assets...", "stage": "assets", "progress": 86})
+        _write_branding_assets(package_dir)
 
         emit_event("export/progress", {"message": "Creating deployment zip...", "stage": "archive", "progress": 90})
         package_zip_path = _build_package_zip(package_dir)
