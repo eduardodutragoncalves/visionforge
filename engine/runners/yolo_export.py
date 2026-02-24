@@ -471,15 +471,28 @@ def _build_readme(
     )
     compose_up_cmd = str(profile.get("compose_up_cmd", "docker compose up --build"))
     compose_down_cmd = str(profile.get("compose_down_cmd", "docker compose down"))
+    default_example_cmd = "python integration_example.py --source /path/to/image_or_video"
+    if shell != "powershell":
+        default_example_cmd = "python3 integration_example.py --source /path/to/image_or_video"
     example_image_cmd = str(
-        profile.get("example_image_cmd", "python integration_example.py --source validation/images/<image_file>")
+        profile.get("example_image_cmd", default_example_cmd.replace("/path/to/image_or_video", "validation/images/<image_file>"))
     ).replace("<image_file>", sample_image)
     example_video_cmd = str(
-        profile.get("example_video_cmd", "python integration_example.py --source /path/to/video.mp4")
+        profile.get("example_video_cmd", default_example_cmd.replace("/path/to/image_or_video", "/path/to/video.mp4"))
     )
-    example_server_cmd = f"python integration_example.py --source validation/images/{sample_image} --server-url http://127.0.0.1:8090"
-    demo_cmd = str(profile.get("demo_cmd", "python demo_app.py --host 0.0.0.0 --port 7860"))
-    serve_cmd = str(profile.get("serve_cmd", "python inference_server.py --host 0.0.0.0 --port 8090"))
+    if shell == "powershell":
+        default_server_example = f".\\example_windows.ps1 -SourcePath validation\\images\\{sample_image} -Conf 0.25 -ServerUrl http://127.0.0.1:8090"
+    else:
+        example_script_name = next((name for name in scripts if name.startswith("example_")), "")
+        if example_script_name:
+            default_server_example = f"bash {example_script_name} validation/images/{sample_image} 0.25 http://127.0.0.1:8090"
+        else:
+            default_server_example = f"python3 integration_example.py --source validation/images/{sample_image} --server-url http://127.0.0.1:8090"
+    example_server_cmd = str(profile.get("example_server_cmd", default_server_example)).replace("<image_file>", sample_image)
+    default_demo_cmd = "python demo_app.py --host 0.0.0.0 --port 7860" if shell == "powershell" else "python3 demo_app.py --host 0.0.0.0 --port 7860"
+    default_serve_cmd = "python inference_server.py --host 0.0.0.0 --port 8090" if shell == "powershell" else "python3 inference_server.py --host 0.0.0.0 --port 8090"
+    demo_cmd = str(profile.get("demo_cmd", default_demo_cmd))
+    serve_cmd = str(profile.get("serve_cmd", default_serve_cmd))
     curl_image_cmd = str(
         profile.get("curl_image_cmd", "curl -X POST http://127.0.0.1:8090/predict -F file=@validation/images/<image_file>")
     ).replace("<image_file>", sample_image)
