@@ -1,13 +1,47 @@
-import os
-import json
 import shutil
 import uuid
 from datetime import datetime
-from pathlib import Path
+from typing import Any, Dict, Optional
 from engine.io import paths, manifests
 import logging
 
 logger = logging.getLogger("VisionForge.PostProcessor")
+
+def _to_float(value: Any) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed
+
+def _resolve_task(config: Dict[str, Any], metrics: Dict[str, Any]) -> str:
+    raw_task = str(config.get("task") or "").strip().lower()
+    if raw_task in {"classification", "classify"}:
+        return "classification"
+    if raw_task in {"detection", "detect"}:
+        return "detection"
+
+    model_name = str(config.get("base_model") or config.get("model") or "").lower()
+    if "-cls" in model_name:
+        return "classification"
+
+    map_metric = _to_float(metrics.get("final_map"))
+    if map_metric is None:
+        map_metric = _to_float(metrics.get("map50"))
+    acc_metric = _to_float(metrics.get("accuracy"))
+    if map_metric is not None and acc_metric is None:
+        return "detection"
+    if acc_metric is not None and map_metric is None:
+        return "classification"
+    return "detection"
+
+def _score_variant(task: str, metrics: Dict[str, Any]) -> float:
+    if task == "classification":
+        score = _to_float(metrics.get("accuracy"))
+        if score is not None:
+            return score
+        return _to_float(metrics.get("final_map")) or _to_float(metrics.get("map50")) or 0.0
+    return _to_float(metrics.get("final_map")) or _to_float(metrics.get("map50")) or _to_float(metrics.get("accuracy")) or 0.0
 
 def handle_training_completion(project_id: str, run_id: str, final_metrics: dict, config: dict):
     """
@@ -50,8 +84,7 @@ def handle_training_completion(project_id: str, run_id: str, final_metrics: dict
     if project_manifest.exists():
         project = manifests.load_manifest(project_manifest)
         
-        # Simple comparison logic: Maximize mAP or Accuracy
-        # If no previous primary, or if this one is better
+        task = _resolve_task(config, final_metrics)
         current_primary = project.get("primaryVariantId")
         should_update = False
         
@@ -62,8 +95,9 @@ def handle_training_completion(project_id: str, run_id: str, final_metrics: dict
             old_var_path = paths.get_variant_dir(project_id, current_primary) / "variant.json"
             if old_var_path.exists():
                 old_var = manifests.load_manifest(old_var_path)
-                old_metric = old_var.get("metrics", {}).get("final_map", 0)
-                new_metric = final_metrics.get("final_map", 0)
+                old_metrics = old_var.get("metrics", {}) if isinstance(old_var.get("metrics"), dict) else {}
+                old_metric = _score_variant(task, old_metrics)
+                new_metric = _score_variant(task, final_metrics)
                 if new_metric > old_metric:
                     should_update = True
             else:

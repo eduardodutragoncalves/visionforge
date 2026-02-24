@@ -94,6 +94,7 @@ interface DatasetVersionSummary {
 
 type DatasetVersionOrientation = 'any' | 'landscape' | 'portrait' | 'square';
 type DatasetVersionResolution = 'any' | 'hd' | 'fhd' | 'qhd' | 'uhd';
+type DatasetTask = 'classification' | 'detection';
 
 type NumericConfigField = 'epochs' | 'img_size';
 type HistoryStatusFilter = 'all' | 'running' | 'completed' | 'failed' | 'other';
@@ -180,6 +181,42 @@ const normalizeBatchSize = (value: unknown) => {
     return Math.round(clamped / BATCH_SIZE_STEP) * BATCH_SIZE_STEP;
 };
 
+const asMetricNumber = (value: unknown): number | null => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return null;
+    return value;
+};
+
+const resolveRunTask = (run: RunHistoryItem, fallbackTask: DatasetTask | null): DatasetTask => {
+    const modelName = String(run?.config?.base_model || run?.config?.model || '').toLowerCase();
+    if (modelName.includes('-cls')) return 'classification';
+    if (fallbackTask) return fallbackTask;
+
+    const metrics = run?.final_metrics || {};
+    const hasMapMetric = asMetricNumber(metrics.final_map) !== null || asMetricNumber(metrics.map50) !== null;
+    const hasAccuracyMetric = asMetricNumber(metrics.accuracy) !== null;
+    if (hasMapMetric) return 'detection';
+    if (hasAccuracyMetric) return 'classification';
+    return 'detection';
+};
+
+const getRunPrimaryMetric = (run: RunHistoryItem, task: DatasetTask) => {
+    const metrics = run?.final_metrics || {};
+    if (task === 'classification') {
+        return {
+            key: 'accuracy',
+            label: 'Train accuracy',
+            value: asMetricNumber(metrics.accuracy),
+            format: 'percent' as const
+        };
+    }
+    return {
+        key: 'final_map',
+        label: 'Train mAP50',
+        value: asMetricNumber(metrics.final_map) ?? asMetricNumber(metrics.map50),
+        format: 'decimal' as const
+    };
+};
+
 export const TrainSetup = () => {
     const { projectId } = useParams();
     const navigate = useNavigate();
@@ -200,7 +237,7 @@ export const TrainSetup = () => {
         framework: 'ultralytics',
         img_size: 640
     });
-    const [datasetTask, setDatasetTask] = useState<'classification' | 'detection' | null>(null);
+    const [datasetTask, setDatasetTask] = useState<DatasetTask | null>(null);
 
     const [target, setTarget] = useState('local');
     const [runtime, setRuntime] = useState<'local' | 'conda' | 'docker'>('local');
@@ -461,9 +498,11 @@ export const TrainSetup = () => {
             if (historySortBy === 'oldest') return parseTimestamp(a.created_at) - parseTimestamp(b.created_at);
             if (historySortBy === 'name_asc') return String(a.name || a.id).localeCompare(String(b.name || b.id));
             if (historySortBy === 'train_accuracy_desc') {
-                const aAcc = toAccuracyPercent(a.final_metrics?.accuracy) ?? -Infinity;
-                const bAcc = toAccuracyPercent(b.final_metrics?.accuracy) ?? -Infinity;
-                return bAcc - aAcc;
+                const taskA = resolveRunTask(a, datasetTask);
+                const taskB = resolveRunTask(b, datasetTask);
+                const primaryA = getRunPrimaryMetric(a, taskA).value ?? -Infinity;
+                const primaryB = getRunPrimaryMetric(b, taskB).value ?? -Infinity;
+                return primaryB - primaryA;
             }
             if (historySortBy === 'validation_accuracy_desc') {
                 const aAcc = runValidationMap[a.id]?.accuracy_pct ?? -Infinity;
@@ -476,7 +515,7 @@ export const TrainSetup = () => {
         });
 
         return filtered;
-    }, [historyOnnxFilter, historyQuery, historySortBy, historyStatusFilter, historyValidationFilter, runHistory, runOnnxMap, runValidationMap]);
+    }, [datasetTask, historyOnnxFilter, historyQuery, historySortBy, historyStatusFilter, historyValidationFilter, runHistory, runOnnxMap, runValidationMap]);
 
     const applyRunConfig = (run: RunHistoryItem) => {
         const cfg = run?.config || {};
@@ -532,15 +571,21 @@ export const TrainSetup = () => {
         return `${percent.toFixed(1)}%`;
     };
 
-    const buildIndicators = (run: RunHistoryItem) => {
+    const buildIndicators = (run: RunHistoryItem, task: DatasetTask) => {
         const metrics = run?.final_metrics || {};
-        const items = [
-            { label: 'Accuracy', value: metrics.accuracy },
-            { label: 'Loss', value: metrics.loss },
-            { label: 'mAP50', value: metrics.final_map },
-            { label: 'Precision', value: metrics.precision },
-            { label: 'Recall', value: metrics.recall }
-        ];
+        const items = task === 'classification'
+            ? [
+                { key: 'accuracy', label: 'Accuracy', value: metrics.accuracy },
+                { key: 'accuracy_top5', label: 'Accuracy top-5', value: metrics.accuracy_top5 },
+                { key: 'loss', label: 'Loss', value: metrics.loss }
+            ]
+            : [
+                { key: 'final_map', label: 'mAP50', value: metrics.final_map ?? metrics.map50 },
+                { key: 'map5095', label: 'mAP50-95', value: metrics.map5095 },
+                { key: 'precision', label: 'Precision', value: metrics.precision },
+                { key: 'recall', label: 'Recall', value: metrics.recall },
+                { key: 'loss', label: 'Loss', value: metrics.loss }
+            ];
         return items.filter((item) => item.value !== undefined && item.value !== null);
     };
 
@@ -668,6 +713,7 @@ export const TrainSetup = () => {
         const runConfig = {
             ...config,
             batch_size: normalizeBatchSize(config.batch_size),
+            task: datasetTask || undefined,
             target,
             runtime,
             dataset_format: datasetFormatForTraining,
@@ -750,6 +796,13 @@ export const TrainSetup = () => {
             setDeletingRunId(null);
         }
     };
+
+    const trainSortLabel = datasetTask === 'classification' ? 'Train accuracy (desc)' : 'Train mAP50 (desc)';
+    const validationSortLabel = datasetTask === 'classification' ? 'Validation accuracy (desc)' : 'Validation score (desc)';
+    const validationCardLabel = datasetTask === 'classification' ? 'Validation accuracy' : 'Validation score';
+    const historyDescription = datasetTask === 'classification'
+        ? 'Compact cards with training and validation accuracy highlights.'
+        : 'Compact cards with detection metrics and validation score highlights.';
 
     return (
         <div className="train-setup animate-fade-in w-full max-w-none space-y-6 pb-20">

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -480,10 +481,35 @@ class Orchestrator:
                         if lines:
                             try:
                                 last_metric = json.loads(lines[-1])
-                                final_metrics["final_map"] = last_metric.get("map50", 0)
-                                final_metrics["accuracy"] = last_metric.get("accuracy", 0)
-                                final_metrics["loss"] = last_metric.get("loss", 0)
-                            except: 
+                                if isinstance(last_metric, dict):
+                                    def read_number(*keys: str) -> Optional[float]:
+                                        for key in keys:
+                                            if key not in last_metric:
+                                                continue
+                                            try:
+                                                value = float(last_metric.get(key))
+                                            except (TypeError, ValueError):
+                                                continue
+                                            if math.isfinite(value):
+                                                return value
+                                        return None
+
+                                    extracted = {
+                                        "loss": read_number("loss"),
+                                        "accuracy": read_number("accuracy"),
+                                        "accuracy_top5": read_number("accuracy_top5"),
+                                        "final_map": read_number("final_map", "map50"),
+                                        "map50": read_number("map50", "final_map"),
+                                        "map5095": read_number("map5095"),
+                                        "precision": read_number("precision"),
+                                        "recall": read_number("recall")
+                                    }
+                                    final_metrics = {
+                                        key: value
+                                        for key, value in extracted.items()
+                                        if value is not None
+                                    }
+                            except Exception:
                                 pass
 
                 self._update_run_status(run_json_path, "completed", {
