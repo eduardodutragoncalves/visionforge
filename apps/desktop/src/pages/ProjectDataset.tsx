@@ -1541,13 +1541,13 @@ export const ProjectDataset = () => {
     }, [dataset?.task, detectionVisibleImages, activeImageId]);
 
     useEffect(() => {
-        if (dataset?.task !== 'detection' || !previewImageId) return;
-        if (activeImageId === previewImageId) return;
-        setActiveImageId(previewImageId);
-    }, [dataset?.task, previewImageId, activeImageId]);
-
-    useEffect(() => {
         if (dataset?.task !== 'detection') return;
+        if (previewImageId) {
+            if (activeImageId !== previewImageId) {
+                setActiveImageId(previewImageId);
+            }
+            return;
+        }
         if (detectionVisibleImages.length === 0) {
             setActiveImageId(null);
             detectionActiveIndexRef.current = 0;
@@ -1563,7 +1563,7 @@ export const ProjectDataset = () => {
             );
             setActiveImageId(detectionVisibleImages[fallbackIndex].id);
         }
-    }, [dataset?.task, detectionVisibleImages, activeImageId]);
+    }, [dataset?.task, detectionVisibleImages, activeImageId, previewImageId]);
 
     useEffect(() => {
         setDetectionLabeledClassFilters((prev) =>
@@ -2589,8 +2589,27 @@ export const ProjectDataset = () => {
 
     const handleSaveDetectionDone = async () => {
         if (!selectedImage) return;
-        if (selectedImage.detection_done) return;
-        await updateDetectionDone(selectedImage.id, true);
+        const currentImageId = selectedImage.id;
+        const currentIndex = detectionVisibleImages.findIndex((image) => image.id === currentImageId);
+        const nextImageId = currentIndex >= 0 && currentIndex < detectionVisibleImages.length - 1
+            ? detectionVisibleImages[currentIndex + 1].id
+            : currentIndex > 0
+                ? detectionVisibleImages[currentIndex - 1].id
+                : null;
+
+        if (!selectedImage.detection_done) {
+            await updateDetectionDone(currentImageId, true);
+        }
+
+        if (previewImageId) {
+            setPreviewImageId(nextImageId);
+            setActiveImageId(nextImageId);
+            return;
+        }
+
+        if (nextImageId && nextImageId !== currentImageId) {
+            setActiveImageId(nextImageId);
+        }
     };
 
     const totalSelected = selectedIds.size;
