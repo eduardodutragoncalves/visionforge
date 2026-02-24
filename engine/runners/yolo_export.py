@@ -1593,15 +1593,13 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         from typing import Optional
         from urllib.parse import urljoin
 
-        os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         import cv2
         import requests
         from flask import Flask, render_template_string, request, send_from_directory
-        from ultralytics import YOLO
+        from runtime_backend import create_runtime
 
 
         PACKAGE_DIR = Path(__file__).resolve().parent
-        MODEL_PATH = PACKAGE_DIR / "artifacts" / "__MODEL_FILENAME__"
         ASSET_DIR = PACKAGE_DIR / "assets"
         UPLOAD_DIR = PACKAGE_DIR / "demo_uploads"
         OUTPUT_DIR = PACKAGE_DIR / "demo_outputs"
@@ -1609,6 +1607,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         MODEL_TASK = "__MODEL_TASK__"
         DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
+        DEFAULT_BACKEND_ORDER = __DEFAULT_BACKEND_ORDER__
 
         if (ASSET_DIR / "visionforge-logo.png").exists():
             LOGO_FILE = "visionforge-logo.png"
@@ -1617,7 +1616,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         else:
             LOGO_FILE = None
 
-        MODEL = None
+        RUNTIME = None
         APP = Flask(__name__)
         SETTINGS = {
             "server_url": "http://127.0.0.1:8090",
@@ -1625,6 +1624,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             "http_timeout": 15.0,
             "conf": 0.25,
             "iou": 0.7,
+            "backend": (os.getenv("VISIONFORGE_FORCE_BACKEND") or "auto"),
             "device": (os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE),
         }
 
@@ -1713,12 +1713,17 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         \"\"\"
 
 
-        def get_model():
-            global MODEL
-            if MODEL is None:
-                kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
-                MODEL = YOLO(str(MODEL_PATH), **kwargs)
-            return MODEL
+        def get_runtime():
+            global RUNTIME
+            if RUNTIME is None:
+                RUNTIME = create_runtime(
+                    package_dir=PACKAGE_DIR,
+                    model_task=MODEL_TASK,
+                    default_backend_order=DEFAULT_BACKEND_ORDER,
+                    backend=str(SETTINGS.get("backend") or "auto"),
+                    device=str(SETTINGS.get("device") or DEFAULT_DEVICE),
+                )
+            return RUNTIME
 
 
         def check_server():
@@ -1790,8 +1795,12 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
 
         def infer_image_file(image_path: Path) -> str:
-            device = str(SETTINGS.get("device") or "cpu").strip() or "cpu"
-            results = get_model().predict(source=str(image_path), verbose=False, device=device)
+            results = get_runtime().predict(
+                source=str(image_path),
+                verbose=False,
+                conf=float(SETTINGS.get("conf", 0.25)),
+                iou=float(SETTINGS.get("iou", 0.7)),
+            )
             if not results:
                 raise RuntimeError("No inference result for image")
             annotated = results[0].plot()
@@ -1829,8 +1838,12 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 ok, frame = cap.read()
                 if not ok:
                     break
-                device = str(SETTINGS.get("device") or "cpu").strip() or "cpu"
-                results = get_model().predict(source=frame, verbose=False, device=device)
+                results = get_runtime().predict(
+                    source=frame,
+                    verbose=False,
+                    conf=float(SETTINGS.get("conf", 0.25)),
+                    iou=float(SETTINGS.get("iou", 0.7)),
+                )
                 writer.write(results[0].plot() if results else frame)
 
             cap.release()
@@ -1906,22 +1919,27 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
 
         def main():
+            global RUNTIME
             parser = argparse.ArgumentParser(description="VisionForge demo UI")
             parser.add_argument("--host", default="127.0.0.1")
             parser.add_argument("--port", type=int, default=7860)
             parser.add_argument("--server-url", default="http://127.0.0.1:8090")
             parser.add_argument("--disable-server", action="store_true")
             parser.add_argument("--timeout", type=float, default=15.0)
+            parser.add_argument("--backend", default=(os.getenv("VISIONFORGE_FORCE_BACKEND") or "auto"), help="Local backend when server is unavailable")
             parser.add_argument("--device", default=(os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE), help="Local inference device when server is unavailable")
             args = parser.parse_args()
             SETTINGS["server_url"] = str(args.server_url).strip()
             SETTINGS["use_server"] = not args.disable_server
             SETTINGS["http_timeout"] = max(1.0, float(args.timeout))
+            SETTINGS["backend"] = str(args.backend or "auto")
             SETTINGS["device"] = str(args.device).strip() or "cpu"
+            RUNTIME = None
             print(f"VisionForge demo running at http://{args.host}:{args.port}")
             if SETTINGS["use_server"]:
                 print(f"Server endpoint target: {SETTINGS['server_url']}")
-            print(f"Local fallback device: {SETTINGS['device']}")
+            runtime = get_runtime()
+            print(f"Local fallback runtime: backend={runtime.backend} device={runtime.device}")
             APP.run(host=args.host, port=args.port, debug=False)
 
 
@@ -1934,6 +1952,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         .replace("__MODEL_FILENAME__", model_filename)
         .replace("__MODEL_TASK__", normalized_task)
         .replace("__DEFAULT_DEVICE__", default_device)
+        .replace("__DEFAULT_BACKEND_ORDER__", default_backend_order_json)
     )
     demo_py.write_text(demo_content, encoding="utf-8")
 
