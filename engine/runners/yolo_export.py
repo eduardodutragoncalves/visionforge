@@ -210,9 +210,10 @@ def _venv_python_cmd(shell: str) -> str:
 def _venv_install_cmd(profile: Dict[str, Any], shell: str) -> str:
     install_cmd = str(profile.get("install_cmd", "python -m pip install --upgrade pip"))
     venv_python = _venv_python_cmd(shell)
-    install_cmd = install_cmd.replace("python3 -m pip", f"{venv_python} -m pip")
-    install_cmd = install_cmd.replace("python -m pip", f"{venv_python} -m pip")
-    return install_cmd
+    placeholder = "__VF_PIP_CMD__"
+    install_cmd = install_cmd.replace("python3 -m pip", placeholder)
+    install_cmd = install_cmd.replace("python -m pip", placeholder)
+    return install_cmd.replace(placeholder, f"{venv_python} -m pip")
 
 
 def _normalize_class_key(value: Any) -> str:
