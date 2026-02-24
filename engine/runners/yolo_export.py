@@ -975,7 +975,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             parser.add_argument("--images-dir", default="validation/images")
             parser.add_argument("--out", default="validation/validation_report.json")
             parser.add_argument("--viz-dir", default="validation/predictions")
-            parser.add_argument("--device", default=(os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE), help="Inference device, e.g. cpu or cuda:0")
+            parser.add_argument("--backend", default="auto", help="auto|ultralytics|onnx|onnx_cpu")
+            parser.add_argument("--device", default=DEFAULT_DEVICE, help="Inference device, e.g. auto|cpu|cuda:0")
             args = parser.parse_args()
 
             package_dir = Path(__file__).resolve().parent
@@ -998,8 +999,13 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             if not isinstance(entries, list):
                 entries = []
 
-            kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
-            model = YOLO(str(model_path), **kwargs)
+            runtime = create_runtime(
+                package_dir=package_dir,
+                model_task=MODEL_TASK,
+                default_backend_order=DEFAULT_BACKEND_ORDER,
+                backend=str(args.backend or "auto"),
+                device=str(args.device or DEFAULT_DEVICE),
+            )
             report_entries: List[Dict[str, Any]] = []
             evaluated = 0
             correct = 0
@@ -1047,7 +1053,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                     continue
 
                 try:
-                    results = model.predict(source=str(image_path), verbose=False, device=str(args.device).strip() or "cpu")
+                    results = runtime.predict(source=str(image_path), verbose=False)
                 except Exception as exc:
                     prediction_errors += 1
                     if viz_path is not None:
