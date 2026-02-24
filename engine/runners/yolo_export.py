@@ -1657,7 +1657,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
                 + bash_python_bootstrap
-                "if [ $# -lt 1 ]; then\n"
+                + "if [ $# -lt 1 ]; then\n"
                 "  echo 'Usage: bash " + filename + " <image_path>'\n"
                 "  exit 1\n"
                 "fi\n"
@@ -1677,7 +1677,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
                 + bash_python_bootstrap
-                "HOST=\"${1:-0.0.0.0}\"\n"
+                + "HOST=\"${1:-0.0.0.0}\"\n"
                 "PORT=\"${2:-8090}\"\n"
                 "\"$PYTHON_BIN\" inference_server.py --host \"$HOST\" --port \"$PORT\"\n",
                 encoding="utf-8",
@@ -1687,7 +1687,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
                 + bash_python_bootstrap
-                "if [ $# -lt 1 ]; then\n"
+                + "if [ $# -lt 1 ]; then\n"
                 "  echo 'Usage: bash " + filename + " <image_or_video_path> [conf] [server_url]'\n"
                 "  exit 1\n"
                 "fi\n"
@@ -1705,7 +1705,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
                 + bash_python_bootstrap
-                "HOST=\"${1:-0.0.0.0}\"\n"
+                + "HOST=\"${1:-0.0.0.0}\"\n"
                 "PORT=\"${2:-7860}\"\n"
                 "SERVER_URL=\"${3:-http://127.0.0.1:8090}\"\n"
                 "\"$PYTHON_BIN\" demo_app.py --host \"$HOST\" --port \"$PORT\" --server-url \"$SERVER_URL\"\n",
