@@ -8,6 +8,7 @@ import {
     FolderOpen,
     LayoutGrid,
     Loader2,
+    PlayCircle,
     RefreshCcw
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
@@ -290,8 +291,8 @@ export const Dashboard = () => {
                             <FolderOpen size={14} />
                             Open Projects
                         </Button>
-                        <button
-                            type="button"
+                        <Button
+                            variant="primary"
                             onClick={() => {
                                 if (firstProject?.id) {
                                     navigate(`/projects/${firstProject.id}/train/setup`);
@@ -299,13 +300,10 @@ export const Dashboard = () => {
                                     navigate('/projects');
                                 }
                             }}
-                            className="inline-flex overflow-hidden focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-50 btn-magnetic h-12 rounded-full pt-[1px] pr-[1px] pb-[1px] pl-[1px] relative"
                         >
-                            <span className="absolute inset-[-1000%] animate-[spin_2s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#E2CBFF_0%,#393BB2_50%,#E2CBFF_100%)]" />
-                            <span className="inline-flex cursor-pointer items-center justify-center transition-colors hover:bg-slate-950/80 text-sm font-medium text-white bg-slate-950 w-full h-full rounded-full pt-1 pr-8 pb-1 pl-8 backdrop-blur-3xl">
-                                Start Training
-                            </span>
-                        </button>
+                            <PlayCircle size={14} />
+                            Start Training
+                        </Button>
                     </div>
                 </div>
                 <div className="flex items-center justify-between text-xs text-secondary">
