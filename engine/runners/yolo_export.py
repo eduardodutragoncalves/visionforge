@@ -422,6 +422,7 @@ def _build_readme(
     example_video_cmd = str(
         profile.get("example_video_cmd", "python integration_example.py --source /path/to/video.mp4")
     )
+    example_server_cmd = f"python integration_example.py --source validation/images/{sample_image} --server-url http://127.0.0.1:8090"
     demo_cmd = str(profile.get("demo_cmd", "python demo_app.py --host 0.0.0.0 --port 7860"))
     serve_cmd = str(profile.get("serve_cmd", "python inference_server.py --host 0.0.0.0 --port 8090"))
     curl_image_cmd = str(
@@ -483,6 +484,7 @@ def _build_readme(
         f"```{command_lang}\n"
         f"{example_image_cmd}\n"
         f"{example_video_cmd}\n"
+        f"{example_server_cmd}\n"
         "```\n\n"
         "### 8) Start the inference server endpoint\n"
         f"```{command_lang}\n"
@@ -1185,8 +1187,10 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         import time
         from pathlib import Path
         from typing import Optional
+        from urllib.parse import urljoin
 
         import cv2
+        import requests
         from flask import Flask, render_template_string, request, send_from_directory
         from ultralytics import YOLO
 
@@ -1206,8 +1210,15 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         else:
             LOGO_FILE = None
 
-        MODEL = YOLO(str(MODEL_PATH))
+        MODEL = None
         APP = Flask(__name__)
+        SETTINGS = {
+            "server_url": "http://127.0.0.1:8090",
+            "use_server": True,
+            "http_timeout": 15.0,
+            "conf": 0.25,
+            "iou": 0.7,
+        }
 
         TEMPLATE = \"\"\"
         <!doctype html>
@@ -1225,6 +1236,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 .title { margin: 0; font-size: 24px; letter-spacing: 0.01em; }
                 .subtitle { margin: 6px 0 0; color: #334155; font-size: 14px; }
                 .notice { margin-top: 14px; padding: 10px 12px; border: 1px solid #94a3b8; border-radius: 10px; background: #f8fafc; font-size: 14px; }
+                .server { margin-top: 10px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; font-size: 13px; color: #1e3a8a; }
                 .grid { margin-top: 18px; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
                 .card { border: 1px solid #cbd5e1; border-radius: 14px; padding: 14px; background: rgba(255, 255, 255, 0.92); }
                 .card h3 { margin: 0 0 10px; font-size: 16px; }
@@ -1252,18 +1264,19 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 {% if message %}
                     <div class="notice">{{ message }}</div>
                 {% endif %}
+                <div class="server">{{ server_status }}</div>
 
                 <section class="grid">
                     <form class="card" action="/predict/image" method="post" enctype="multipart/form-data">
                         <h3>Image Inference</h3>
-                        <p>Upload one image and get an annotated output.</p>
+                        <p>Upload one image and get an annotated output (server when available).</p>
                         <input type="file" name="image_file" accept="image/*" required />
                         <button class="button" type="submit">Run Image Inference</button>
                     </form>
 
                     <form class="card" action="/predict/video" method="post" enctype="multipart/form-data">
                         <h3>Video Inference</h3>
-                        <p>Upload one video and get an annotated output video.</p>
+                        <p>Upload one video and get an annotated output (server when available).</p>
                         <input type="file" name="video_file" accept="video/*" required />
                         <button class="button" type="submit">Run Video Inference</button>
                     </form>
@@ -1292,19 +1305,83 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         \"\"\"
 
 
-        def render_page(message: str = "", image_output: Optional[str] = None, video_output: Optional[str] = None):
+        def get_model():
+            global MODEL
+            if MODEL is None:
+                MODEL = YOLO(str(MODEL_PATH))
+            return MODEL
+
+
+        def check_server():
+            if not SETTINGS.get("use_server"):
+                return False, "Inference server disabled. Using local model."
+            base = str(SETTINGS.get("server_url") or "").strip()
+            if not base:
+                return False, "No server URL configured. Using local model."
+            try:
+                res = requests.get(urljoin(base.rstrip("/") + "/", "health"), timeout=float(SETTINGS.get("http_timeout", 15.0)))
+                if not res.ok:
+                    return False, f"Inference server unavailable ({res.status_code}). Using local model."
+                return True, f"Inference server online at {base}."
+            except Exception as exc:
+                return False, f"Inference server offline ({exc}). Using local model."
+
+
+        def server_predict(input_path: Path) -> dict:
+            base = str(SETTINGS.get("server_url") or "").rstrip("/") + "/"
+            predict_url = urljoin(base, "predict")
+            with input_path.open("rb") as fp:
+                response = requests.post(
+                    predict_url,
+                    files={"file": (input_path.name, fp, "application/octet-stream")},
+                    data={
+                        "conf": str(SETTINGS.get("conf", 0.25)),
+                        "iou": str(SETTINGS.get("iou", 0.7)),
+                    },
+                    timeout=max(float(SETTINGS.get("http_timeout", 15.0)), 60.0),
+                )
+            response.raise_for_status()
+            return response.json()
+
+
+        def download_server_output(payload: dict) -> Optional[str]:
+            output_url = payload.get("output_url")
+            if not output_url:
+                return None
+            base = str(SETTINGS.get("server_url") or "").rstrip("/") + "/"
+            url = output_url if str(output_url).startswith("http") else urljoin(base, str(output_url).lstrip("/"))
+            target_name = str(payload.get("output_file") or Path(str(output_url)).name or f"server_pred_{int(time.time() * 1000)}")
+            target_path = OUTPUT_DIR / target_name
+            with requests.get(url, timeout=max(float(SETTINGS.get("http_timeout", 15.0)), 60.0), stream=True) as response:
+                response.raise_for_status()
+                with target_path.open("wb") as out_fp:
+                    for chunk in response.iter_content(chunk_size=1024 * 64):
+                        if chunk:
+                            out_fp.write(chunk)
+            return target_name
+
+
+        def render_page(
+            message: str = "",
+            image_output: Optional[str] = None,
+            video_output: Optional[str] = None,
+            server_status: Optional[str] = None,
+        ):
             logo_url = f"/assets/{LOGO_FILE}" if LOGO_FILE else None
+            if server_status is None:
+                _, server_status = check_server()
             return render_template_string(
                 TEMPLATE,
                 logo_url=logo_url,
                 message=message,
                 image_output=image_output,
                 video_output=video_output,
+                server_status=server_status,
             )
 
 
         def infer_image_file(image_path: Path) -> str:
-            results = MODEL.predict(source=str(image_path), verbose=False)
+            results = get_model().predict(source=str(image_path), verbose=False)
             if not results:
                 raise RuntimeError("No inference result for image")
             annotated = results[0].plot()
@@ -1342,7 +1419,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 ok, frame = cap.read()
                 if not ok:
                     break
-                results = MODEL.predict(source=frame, verbose=False)
+                results = get_model().predict(source=frame, verbose=False)
                 writer.write(results[0].plot() if results else frame)
 
             cap.release()
@@ -1352,7 +1429,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
         @APP.get("/")
         def home():
-            return render_page()
+            return render_page(server_status=check_server()[1])
 
 
         @APP.get("/assets/<path:filename>")
@@ -1373,11 +1450,22 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             suffix = Path(file.filename).suffix.lower() or ".jpg"
             input_path = UPLOAD_DIR / f"upload_image_{int(time.time() * 1000)}{suffix}"
             file.save(str(input_path))
+            server_ok, server_status = check_server()
             try:
+                if server_ok:
+                    payload = server_predict(input_path)
+                    out_name = download_server_output(payload)
+                    if not out_name:
+                        raise RuntimeError("Server did not return output file URL")
+                    return render_page(
+                        message="Image inference completed via server.",
+                        image_output=out_name,
+                        server_status=server_status,
+                    )
                 out_name = infer_image_file(input_path)
             except Exception as exc:
-                return render_page(message=f"Image inference failed: {exc}")
-            return render_page(message="Image inference completed.", image_output=out_name)
+                return render_page(message=f"Image inference failed: {exc}", server_status=server_status)
+            return render_page(message="Image inference completed locally.", image_output=out_name, server_status=server_status)
 
 
         @APP.post("/predict/video")
@@ -1388,19 +1476,38 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             suffix = Path(file.filename).suffix.lower() or ".mp4"
             input_path = UPLOAD_DIR / f"upload_video_{int(time.time() * 1000)}{suffix}"
             file.save(str(input_path))
+            server_ok, server_status = check_server()
             try:
+                if server_ok:
+                    payload = server_predict(input_path)
+                    out_name = download_server_output(payload)
+                    if not out_name:
+                        raise RuntimeError("Server did not return output file URL")
+                    return render_page(
+                        message="Video inference completed via server.",
+                        video_output=out_name,
+                        server_status=server_status,
+                    )
                 out_name = infer_video_file(input_path)
             except Exception as exc:
-                return render_page(message=f"Video inference failed: {exc}")
-            return render_page(message="Video inference completed.", video_output=out_name)
+                return render_page(message=f"Video inference failed: {exc}", server_status=server_status)
+            return render_page(message="Video inference completed locally.", video_output=out_name, server_status=server_status)
 
 
         def main():
             parser = argparse.ArgumentParser(description="VisionForge demo UI")
             parser.add_argument("--host", default="127.0.0.1")
             parser.add_argument("--port", type=int, default=7860)
+            parser.add_argument("--server-url", default="http://127.0.0.1:8090")
+            parser.add_argument("--disable-server", action="store_true")
+            parser.add_argument("--timeout", type=float, default=15.0)
             args = parser.parse_args()
+            SETTINGS["server_url"] = str(args.server_url).strip()
+            SETTINGS["use_server"] = not args.disable_server
+            SETTINGS["http_timeout"] = max(1.0, float(args.timeout))
             print(f"VisionForge demo running at http://{args.host}:{args.port}")
+            if SETTINGS["use_server"]:
+                print(f"Server endpoint target: {SETTINGS['server_url']}")
             APP.run(host=args.host, port=args.port, debug=False)
 
 
@@ -1426,6 +1533,15 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             elif filename.startswith("validate_"):
                 target_path.write_text(
                     "python .\\validate_batch.py\n",
+                    encoding="utf-8",
+                )
+            elif filename.startswith("serve_"):
+                target_path.write_text(
+                    "param(\n"
+                    "  [string]$Host='0.0.0.0',\n"
+                    "  [int]$Port=8090\n"
+                    ")\n"
+                    "python .\\inference_server.py --host $Host --port $Port\n",
                     encoding="utf-8",
                 )
             elif filename.startswith("example_"):
@@ -1469,6 +1585,15 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
                 "python validate_batch.py\n",
+                encoding="utf-8",
+            )
+        elif filename.startswith("serve_"):
+            target_path.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "HOST=\"${1:-0.0.0.0}\"\n"
+                "PORT=\"${2:-8090}\"\n"
+                "python inference_server.py --host \"$HOST\" --port \"$PORT\"\n",
                 encoding="utf-8",
             )
         elif filename.startswith("example_"):
