@@ -728,6 +728,16 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             return "cpu"
 
 
+        def _onnx_cuda_available() -> bool:
+            try:
+                import onnxruntime as ort  # type: ignore
+
+                providers = list(ort.get_available_providers())
+                return "CUDAExecutionProvider" in providers
+            except Exception:
+                return False
+
+
         def _select_device(backend: str, requested: str) -> str:
             backend = _normalize_backend(backend)
             requested_norm = _normalize_backend(requested)
@@ -736,7 +746,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             if requested and requested_norm != "auto":
                 return str(requested).strip()
             if backend == "onnx":
-                return "cuda:0"
+                return "cuda:0" if _onnx_cuda_available() else "cpu"
             return _select_ultralytics_device(requested)
 
 
