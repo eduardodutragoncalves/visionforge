@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import clsx from 'clsx';
 import {
     Activity,
     Boxes,
@@ -448,15 +449,27 @@ export const Dashboard = () => {
                                 const imagesTotal = Number(project.images_total || 0);
                                 const labeledImages = Number(project.labeled_images || 0);
                                 const progress = imagesTotal > 0 ? (labeledImages / imagesTotal) * 100 : 0;
+                                const isDetection = (project.analysis_type || 'classification') === 'detection';
                                 return (
                                     <button
                                         key={project.id}
                                         type="button"
-                                        className="w-full rounded-xl border border-graphite-700/70 bg-graphite-900/70 px-3 py-2 text-left transition-colors hover:border-accent-primary/60"
+                                        className="relative w-full rounded-xl border border-graphite-700/70 bg-graphite-900/70 px-3 py-2 text-left transition-colors hover:border-accent-primary/60"
                                         onClick={() => navigate(`/projects/${project.id}/dataset`)}
                                     >
+                                        <span
+                                            className={clsx(
+                                                'absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full border text-[10px] font-semibold uppercase tracking-[0.12em]',
+                                                isDetection
+                                                    ? 'border-accent-warning/60 bg-accent-warning/10 text-accent-warning'
+                                                    : 'border-accent-primary/60 bg-accent-primary/10 text-accent-primary'
+                                            )}
+                                            title={isDetection ? 'Object Detection' : 'Classification'}
+                                        >
+                                            {isDetection ? 'OD' : 'C'}
+                                        </span>
                                         <div className="flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
+                                            <div className="min-w-0 pl-8">
                                                 <div className="truncate text-sm font-semibold">{project.name}</div>
                                                 <div className="text-xs text-secondary">
                                                     {project.analysis_type || 'classification'} · classes {project.classes_total || 0} · runs {project.runs_total || 0}

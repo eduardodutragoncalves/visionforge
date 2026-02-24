@@ -304,10 +304,24 @@ export const Projects = () => {
                         </Card>
                     )}
 
-                    {!loading && !error && filteredProjects.map((project) => (
-                        <Card key={project.id} hoverEffect className="flex flex-col gap-4">
+                    {!loading && !error && filteredProjects.map((project) => {
+                        const projectType = normalizeAnalysisType(project.analysis_type);
+                        const isDetection = projectType === 'detection';
+                        return (
+                        <Card key={project.id} hoverEffect className="relative flex flex-col gap-4 overflow-hidden">
+                            <span
+                                className={clsx(
+                                    'absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full border text-[10px] font-semibold uppercase tracking-[0.12em]',
+                                    isDetection
+                                        ? 'border-accent-warning/60 bg-accent-warning/10 text-accent-warning'
+                                        : 'border-accent-primary/60 bg-accent-primary/10 text-accent-primary'
+                                )}
+                                title={isDetection ? 'Object Detection' : 'Classification'}
+                            >
+                                {isDetection ? 'OD' : 'C'}
+                            </span>
                             <div className="flex items-start justify-between">
-                                <div>
+                                <div className="pl-9">
                                     <h3 className="font-semibold text-lg">{project.name}</h3>
                                     <div className="text-xs text-secondary font-mono">{project.id}</div>
                                 </div>
@@ -357,12 +371,12 @@ export const Projects = () => {
                                 </div>
                             </div>
                             <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.3em] text-secondary">
-                                <span>{project.analysis_type === 'detection' ? 'Detection' : 'Classification'}</span>
+                                <span>{isDetection ? 'Detection' : 'Classification'}</span>
                                 <span>Classes {project.classes_total ?? 0}</span>
                                 <span>Sources {project.sources_total ?? 0}</span>
                             </div>
                         </Card>
-                    ))}
+                    )})}
                 </div>
             </div>
             {isCreateModalOpen && (
