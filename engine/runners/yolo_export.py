@@ -29,17 +29,20 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": (
             "python -m pip install --upgrade pip setuptools wheel && \\\n"
-            "python -m pip install ultralytics onnx opencv-python numpy flask && \\\n"
+            "python -m pip install ultralytics onnx opencv-python numpy flask requests && \\\n"
             "(python -m pip install onnxruntime-gpu || python -m pip install onnxruntime || \\\n"
             "  (echo 'Install NVIDIA ONNX Runtime wheel compatible with your JetPack version before inference.' && false))"
         ),
         "onnx_opset": 19,
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
+        "serve_cmd": "bash serve_linux.sh",
+        "curl_image_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@validation/images/<image_file>",
+        "curl_video_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@/path/to/video.mp4",
         "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
         "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
         "demo_cmd": "bash demo_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
+        "script_files": ["run_linux.sh", "validate_linux.sh", "serve_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "JetPack version and CUDA stack must match the target device.",
             "Most Jetson deployments use Python 3.8; use 3.10 only on newer JetPack images that support it.",
@@ -52,13 +55,16 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
+        "serve_cmd": "bash serve_linux.sh",
+        "curl_image_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@validation/images/<image_file>",
+        "curl_video_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@/path/to/video.mp4",
         "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
         "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
         "demo_cmd": "bash demo_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
+        "script_files": ["run_linux.sh", "validate_linux.sh", "serve_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "Use a small model and reduced image size when RAM is limited.",
             "Prefer active cooling for long-running inference sessions.",
@@ -68,13 +74,16 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
+        "serve_cmd": "bash serve_linux.sh",
+        "curl_image_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@validation/images/<image_file>",
+        "curl_video_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@/path/to/video.mp4",
         "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
         "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
         "demo_cmd": "bash demo_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
+        "script_files": ["run_linux.sh", "validate_linux.sh", "serve_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "Current package uses ONNX Runtime CPU baseline.",
             "For Rockchip variants, an RKNN pipeline can be added in a future profile.",
@@ -84,13 +93,16 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
+        "serve_cmd": "bash serve_linux.sh",
+        "curl_image_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@validation/images/<image_file>",
+        "curl_video_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@/path/to/video.mp4",
         "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
         "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
         "demo_cmd": "bash demo_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
+        "script_files": ["run_linux.sh", "validate_linux.sh", "serve_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "This profile is a Linux baseline for edge CPU inference.",
             "Tune confidence/IoU thresholds after validating outputs on device.",
@@ -100,13 +112,16 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
+        "serve_cmd": "bash serve_linux.sh",
+        "curl_image_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@validation/images/<image_file>",
+        "curl_video_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@/path/to/video.mp4",
         "example_image_cmd": "bash example_linux.sh validation/images/<image_file>",
         "example_video_cmd": "bash example_linux.sh /path/to/video.mp4",
         "demo_cmd": "bash demo_linux.sh",
-        "script_files": ["run_linux.sh", "validate_linux.sh", "example_linux.sh", "demo_linux.sh"],
+        "script_files": ["run_linux.sh", "validate_linux.sh", "serve_linux.sh", "example_linux.sh", "demo_linux.sh"],
         "notes": [
             "This profile targets Linux desktop/server CPU baseline.",
             "Use a GPU runtime profile only when your desktop stack is validated for it.",
@@ -116,13 +131,16 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "bash",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask",
+        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_macos.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_macos.sh",
+        "serve_cmd": "bash serve_macos.sh",
+        "curl_image_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@validation/images/<image_file>",
+        "curl_video_cmd": "curl -X POST http://127.0.0.1:8090/predict -F file=@/path/to/video.mp4",
         "example_image_cmd": "bash example_macos.sh validation/images/<image_file>",
         "example_video_cmd": "bash example_macos.sh /path/to/video.mp4",
         "demo_cmd": "bash demo_macos.sh",
-        "script_files": ["run_macos.sh", "validate_macos.sh", "example_macos.sh", "demo_macos.sh"],
+        "script_files": ["run_macos.sh", "validate_macos.sh", "serve_macos.sh", "example_macos.sh", "demo_macos.sh"],
         "notes": [
             "This profile uses ONNX Runtime baseline on macOS.",
             "CoreML conversion can be evaluated later for Apple Silicon optimization.",
@@ -132,13 +150,16 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "shell": "powershell",
         "venv_create": "python -m venv .venv",
         "venv_activate": ".\\.venv\\Scripts\\Activate.ps1",
-        "install_cmd": "python -m pip install --upgrade pip; python -m pip install ultralytics onnxruntime opencv-python numpy flask",
+        "install_cmd": "python -m pip install --upgrade pip; python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": ".\\run_windows.ps1 -ImagePath validation\\images\\<image_file>",
         "validation_cmd": ".\\validate_windows.ps1",
+        "serve_cmd": ".\\serve_windows.ps1 -Host 0.0.0.0 -Port 8090",
+        "curl_image_cmd": "curl.exe -X POST http://127.0.0.1:8090/predict -F \"file=@validation/images/<image_file>\"",
+        "curl_video_cmd": "curl.exe -X POST http://127.0.0.1:8090/predict -F \"file=@C:\\path\\to\\video.mp4\"",
         "example_image_cmd": ".\\example_windows.ps1 -SourcePath validation\\images\\<image_file>",
         "example_video_cmd": ".\\example_windows.ps1 -SourcePath C:\\path\\to\\video.mp4",
         "demo_cmd": ".\\demo_windows.ps1 -Host 0.0.0.0 -Port 7860",
-        "script_files": ["run_windows.ps1", "validate_windows.ps1", "example_windows.ps1", "demo_windows.ps1"],
+        "script_files": ["run_windows.ps1", "validate_windows.ps1", "serve_windows.ps1", "example_windows.ps1", "demo_windows.ps1"],
         "notes": [
             "This profile targets Windows baseline with PowerShell commands.",
             "If you need GPU acceleration on Windows, evaluate ONNX Runtime DirectML after baseline validation.",
@@ -402,6 +423,13 @@ def _build_readme(
         profile.get("example_video_cmd", "python integration_example.py --source /path/to/video.mp4")
     )
     demo_cmd = str(profile.get("demo_cmd", "python demo_app.py --host 0.0.0.0 --port 7860"))
+    serve_cmd = str(profile.get("serve_cmd", "python inference_server.py --host 0.0.0.0 --port 8090"))
+    curl_image_cmd = str(
+        profile.get("curl_image_cmd", "curl -X POST http://127.0.0.1:8090/predict -F file=@validation/images/<image_file>")
+    ).replace("<image_file>", sample_image)
+    curl_video_cmd = str(
+        profile.get("curl_video_cmd", "curl -X POST http://127.0.0.1:8090/predict -F file=@/path/to/video.mp4")
+    )
 
     return (
         f"# Deployment Guide - {label}\n\n"
@@ -415,6 +443,7 @@ def _build_readme(
         "- `validation/predictions/` (annotated validation images generated by `validate_batch.py`)\n"
         "- `run_local.py`\n"
         "- `validate_batch.py`\n"
+        "- `inference_server.py` (HTTP inference endpoint)\n"
         "- `integration_example.py` (example script for image/video inference)\n"
         "- `demo_app.py` (simple web UI for image/video testing)\n"
         "- `assets/visionforge-logo.png`\n"
@@ -455,7 +484,18 @@ def _build_readme(
         f"{example_image_cmd}\n"
         f"{example_video_cmd}\n"
         "```\n\n"
-        "### 8) Launch a simple local demo UI\n"
+        "### 8) Start the inference server endpoint\n"
+        f"```{command_lang}\n"
+        f"{serve_cmd}\n"
+        "```\n"
+        "- Health check endpoint: `GET /health`\n"
+        "- Inference endpoint: `POST /predict` (multipart form with `file`)\n\n"
+        "### 9) Test server via curl\n"
+        f"```{command_lang}\n"
+        f"{curl_image_cmd}\n"
+        f"{curl_video_cmd}\n"
+        "```\n\n"
+        "### 10) Launch a simple local demo UI\n"
         f"```{command_lang}\n"
         f"{demo_cmd}\n"
         "```\n"
@@ -472,6 +512,7 @@ def _build_readme(
 def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str):
     run_py = package_dir / "run_local.py"
     validate_py = package_dir / "validate_batch.py"
+    server_py = package_dir / "inference_server.py"
     example_py = package_dir / "integration_example.py"
     demo_py = package_dir / "demo_app.py"
 
