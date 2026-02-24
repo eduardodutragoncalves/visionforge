@@ -627,19 +627,28 @@ def _build_readme(
     )
 
 
-def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str):
+def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str, model_task: str = ""):
     run_py = package_dir / "run_local.py"
     validate_py = package_dir / "validate_batch.py"
     server_py = package_dir / "inference_server.py"
     example_py = package_dir / "integration_example.py"
     demo_py = package_dir / "demo_app.py"
 
+    profile = _target_profile(target_id)
+    default_device = str(profile.get("default_device") or "cpu").strip() or "cpu"
+    normalized_task = str(model_task or "").strip().lower()
+
     run_script = textwrap.dedent(
         """
+        import os
         import sys
         from pathlib import Path
 
+        os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         from ultralytics import YOLO
+
+        MODEL_TASK = "__MODEL_TASK__"
+        DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
 
 
         def main():
@@ -651,8 +660,10 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 print(f"Image not found: {image_path}")
                 sys.exit(1)
             model_path = Path(__file__).resolve().parent / "artifacts" / "__MODEL_FILENAME__"
-            model = YOLO(str(model_path))
-            results = model.predict(source=str(image_path), verbose=False)
+            kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
+            model = YOLO(str(model_path), **kwargs)
+            device = (os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE).strip() or "cpu"
+            results = model.predict(source=str(image_path), verbose=False, device=device)
             if not results:
                 print("No results produced")
                 return
@@ -692,12 +703,17 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         """
         import argparse
         import json
+        import os
         import shutil
         from pathlib import Path
         from typing import Any, Dict, List, Optional
 
+        os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         import cv2
         from ultralytics import YOLO
+
+        MODEL_TASK = "__MODEL_TASK__"
+        DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
 
 
         def normalize_class(value: Any) -> str:
@@ -755,6 +771,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             parser.add_argument("--images-dir", default="validation/images")
             parser.add_argument("--out", default="validation/validation_report.json")
             parser.add_argument("--viz-dir", default="validation/predictions")
+            parser.add_argument("--device", default=(os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE), help="Inference device, e.g. cpu or cuda:0")
             args = parser.parse_args()
 
             package_dir = Path(__file__).resolve().parent
@@ -777,7 +794,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             if not isinstance(entries, list):
                 entries = []
 
-            model = YOLO(str(model_path))
+            kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
+            model = YOLO(str(model_path), **kwargs)
             report_entries: List[Dict[str, Any]] = []
             evaluated = 0
             correct = 0
@@ -825,7 +843,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                     continue
 
                 try:
-                    results = model.predict(source=str(image_path), verbose=False)
+                    results = model.predict(source=str(image_path), verbose=False, device=str(args.device).strip() or "cpu")
                 except Exception as exc:
                     prediction_errors += 1
                     if viz_path is not None:
@@ -1633,7 +1651,6 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
     ).strip() + "\n"
     demo_py.write_text(demo_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
 
-    profile = _target_profile(target_id)
     script_files = profile.get("script_files", [])
     min_python_raw = str(profile.get("min_python") or "").strip()
     try:
@@ -2028,6 +2045,7 @@ def main():
 
         emit_event("export/progress", {"message": "Loading model...", "stage": "init", "progress": 10})
         model = YOLO(str(model_path))
+        model_task = str(getattr(model, "task", "") or "").strip().lower()
 
         emit_event("export/progress", {"message": f"Exporting to {fmt}...", "stage": "export", "progress": 45})
         start_t = time.time()
@@ -2072,7 +2090,7 @@ def main():
         )
 
         emit_event("export/progress", {"message": "Writing runtime scripts...", "stage": "scripts", "progress": 82})
-        _write_runner_scripts(package_dir, model_filename, args.target_id)
+        _write_runner_scripts(package_dir, model_filename, args.target_id, model_task=model_task)
 
         emit_event("export/progress", {"message": "Writing runtime environment assets...", "stage": "runtime", "progress": 84})
         _write_runtime_assets(package_dir, args.target_id)
