@@ -1145,6 +1145,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         .replace("__MODEL_FILENAME__", model_filename)
         .replace("__MODEL_TASK__", normalized_task)
         .replace("__DEFAULT_DEVICE__", default_device)
+        .replace("__DEFAULT_BACKEND_ORDER__", default_backend_order_json)
     )
     validate_py.write_text(validate_content, encoding="utf-8")
 
@@ -1152,22 +1153,19 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         """
         import argparse
         import json
-        import os
         import time
         from pathlib import Path
         from typing import Any, Dict, List
 
-        os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         import cv2
         from flask import Flask, jsonify, request, send_from_directory
-        from ultralytics import YOLO
+        from runtime_backend import create_runtime
 
 
         IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
         VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
 
         PACKAGE_DIR = Path(__file__).resolve().parent
-        MODEL_PATH = PACKAGE_DIR / "artifacts" / "__MODEL_FILENAME__"
         UPLOAD_DIR = PACKAGE_DIR / "server_uploads"
         OUTPUT_DIR = PACKAGE_DIR / "server_outputs"
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -1175,11 +1173,25 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
         MODEL_TASK = "__MODEL_TASK__"
         DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
-        DEVICE = (os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE).strip() or "cpu"
-        model_kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
-        MODEL = YOLO(str(MODEL_PATH), **model_kwargs)
+        DEFAULT_BACKEND_ORDER = __DEFAULT_BACKEND_ORDER__
+        SELECTED_BACKEND = "auto"
+        SELECTED_DEVICE = DEFAULT_DEVICE
+        RUNTIME = None
         APP = Flask(__name__)
         STARTED_AT = time.time()
+
+
+        def get_runtime():
+            global RUNTIME
+            if RUNTIME is None:
+                RUNTIME = create_runtime(
+                    package_dir=PACKAGE_DIR,
+                    model_task=MODEL_TASK,
+                    default_backend_order=DEFAULT_BACKEND_ORDER,
+                    backend=SELECTED_BACKEND,
+                    device=SELECTED_DEVICE,
+                )
+            return RUNTIME
 
 
         def summarize_result(result: Any) -> Dict[str, Any]:
@@ -1216,7 +1228,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
         def infer_image(path: Path, conf: float, iou: float) -> Dict[str, Any]:
             started = time.time()
-            results = MODEL.predict(source=str(path), verbose=False, conf=conf, iou=iou, device=DEVICE)
+            results = get_runtime().predict(source=str(path), verbose=False, conf=conf, iou=iou)
             if not results:
                 raise RuntimeError("No inference result produced")
             result = results[0]
@@ -1268,7 +1280,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 ok, frame = cap.read()
                 if not ok:
                     break
-                results = MODEL.predict(source=frame, verbose=False, conf=conf, iou=iou, device=DEVICE)
+                results = get_runtime().predict(source=frame, verbose=False, conf=conf, iou=iou)
                 if results:
                     first = results[0]
                     if frames == 0:
@@ -1309,11 +1321,14 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
         @APP.get("/health")
         def health():
+            runtime = get_runtime()
             return jsonify(
                 {
                     "status": "ok",
                     "uptime_sec": round(time.time() - STARTED_AT, 3),
-                    "model_path": str(MODEL_PATH),
+                    "model_path": str(runtime.model_path),
+                    "backend": str(runtime.backend),
+                    "device": str(runtime.device),
                 }
             )
 
