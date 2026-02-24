@@ -378,6 +378,8 @@ export const ProjectDataset = () => {
     }, [thumbSize]);
     const imageRef = useRef<HTMLImageElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const previewImageRef = useRef<HTMLImageElement | null>(null);
+    const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const detectionLayoutRef = useRef<HTMLDivElement | null>(null);
     const classificationGridRef = useRef<HTMLDivElement | null>(null);
     const detectionGridRef = useRef<HTMLDivElement | null>(null);
@@ -689,6 +691,14 @@ export const ProjectDataset = () => {
     const canGoPrevDetection = activeDetectionIndex > 0;
     const canGoNextDetection =
         activeDetectionIndex >= 0 && activeDetectionIndex < detectionVisibleImages.length - 1;
+    const detectionPreviewIndex = useMemo(
+        () => detectionVisibleImages.findIndex((image) => image.id === previewImageId),
+        [detectionVisibleImages, previewImageId]
+    );
+    const canGoPrevDetectionPreview = detectionPreviewIndex > 0;
+    const canGoNextDetectionPreview =
+        detectionPreviewIndex >= 0 && detectionPreviewIndex < detectionVisibleImages.length - 1;
+    const isDetectionPreviewOpen = Boolean(dataset?.task === 'detection' && previewImageId);
     const progressImages = useMemo(() => {
         if (!dataset?.images || dataset.images.length === 0) return images;
         if (dataset.images.length === images.length) return images;
@@ -1526,6 +1536,12 @@ export const ProjectDataset = () => {
     }, [dataset?.task, detectionVisibleImages, activeImageId]);
 
     useEffect(() => {
+        if (dataset?.task !== 'detection' || !previewImageId) return;
+        if (activeImageId === previewImageId) return;
+        setActiveImageId(previewImageId);
+    }, [dataset?.task, previewImageId, activeImageId]);
+
+    useEffect(() => {
         if (dataset?.task !== 'detection') return;
         if (detectionVisibleImages.length === 0) {
             setActiveImageId(null);
@@ -2256,9 +2272,16 @@ export const ProjectDataset = () => {
         return null;
     };
 
+    const getDrawingSurface = () => {
+        const usePreviewSurface = isDetectionPreviewOpen;
+        return {
+            image: usePreviewSurface ? previewImageRef.current : imageRef.current,
+            canvas: usePreviewSurface ? previewCanvasRef.current : canvasRef.current
+        };
+    };
+
     const drawBoxes = (boxes: BoundingBox[], draft?: BoundingBox | null) => {
-        const canvas = canvasRef.current;
-        const img = imageRef.current;
+        const { canvas, image: img } = getDrawingSurface();
         if (!canvas || !img) return;
         const rect = img.getBoundingClientRect();
         canvas.width = rect.width;
@@ -2309,7 +2332,7 @@ export const ProjectDataset = () => {
     }, [selectedImage, draftBox, editingBoxIndex, editingBoxDraft, classColorMap, classMap]);
 
     const getRelativePoint = (event: React.MouseEvent<HTMLDivElement, MouseEvent>, clampToImage = false) => {
-        const img = imageRef.current;
+        const { image: img } = getDrawingSurface();
         if (!img) return null;
         const rect = img.getBoundingClientRect();
         const isOutside =
