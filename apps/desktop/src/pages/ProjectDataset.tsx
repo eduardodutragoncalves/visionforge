@@ -4059,9 +4059,15 @@ export const ProjectDataset = () => {
                                             size="sm"
                                             variant={detectionPreviewImage.detection_done ? 'secondary' : 'primary'}
                                             className={detectionPreviewImage.detection_done ? 'border-accent-success/60 text-accent-success' : undefined}
-                                            onClick={() => void updateDetectionDone(detectionPreviewImage.id, !detectionPreviewImage.detection_done)}
+                                            onClick={() => {
+                                                if (detectionPreviewImage.detection_done) {
+                                                    void updateDetectionDone(detectionPreviewImage.id, false);
+                                                    return;
+                                                }
+                                                void handleSaveDetectionDone();
+                                            }}
                                         >
-                                            {detectionPreviewImage.detection_done ? 'Mark pending' : 'Mark done (S)'}
+                                            {detectionPreviewImage.detection_done ? 'Mark pending' : 'Save and next (S)'}
                                         </Button>
                                         <Button
                                             size="sm"
@@ -4505,10 +4511,16 @@ export const ProjectDataset = () => {
                                                     size="sm"
                                                     variant={selectedImage.detection_done ? 'secondary' : 'primary'}
                                                     className={selectedImage.detection_done ? 'border-accent-success/60 text-accent-success' : undefined}
-                                                    onClick={handleToggleDetectionDone}
+                                                    onClick={() => {
+                                                        if (selectedImage.detection_done) {
+                                                            void handleToggleDetectionDone();
+                                                            return;
+                                                        }
+                                                        void handleSaveDetectionDone();
+                                                    }}
                                                     title="Shortcut: S"
                                                 >
-                                                    {selectedImage.detection_done ? 'Mark pending' : 'Mark done (S)'}
+                                                    {selectedImage.detection_done ? 'Mark pending' : 'Save and next (S)'}
                                                 </Button>
                                             )}
                                             {selectedImage && (
