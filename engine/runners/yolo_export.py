@@ -598,6 +598,7 @@ def _build_readme(
         "## Troubleshooting\n"
         "- If import errors happen, confirm the virtual environment is active.\n"
         "- If pip warns about `~/.local/bin` script location, dependencies were installed outside `.venv`; run Option A again and keep the `.venv` commands exactly as documented.\n"
+        "- If Docker fails with `ImportError: libxcb.so.1`, rebuild with this package Dockerfile (it installs OpenCV runtime libs via apt).\n"
         "- If inference is slow, reduce input resolution and batch size.\n"
         "- If classes look wrong, verify class mapping against your training dataset.\n"
     )
