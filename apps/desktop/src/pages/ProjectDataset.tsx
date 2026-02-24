@@ -2096,6 +2096,11 @@ export const ProjectDataset = () => {
         await handleDeleteImages([imageId]);
     };
 
+    const openDetectionPreview = useCallback((imageId: string) => {
+        setActiveImageId(imageId);
+        setPreviewImageId(imageId);
+    }, []);
+
     const goToPreviousPreviewImage = useCallback(() => {
         if (!canGoPrevPreviewImage) return;
         const target = visibleImages[previewImageIndex - 1];
@@ -2121,6 +2126,37 @@ export const ProjectDataset = () => {
         if (!deleted) return;
         setPreviewImageId(nextImageId);
     }, [handleDeleteImages, visibleImages]);
+
+    const goToPreviousDetectionPreviewImage = useCallback(() => {
+        if (!canGoPrevDetectionPreview) return;
+        const target = detectionVisibleImages[detectionPreviewIndex - 1];
+        if (target) {
+            setActiveImageId(target.id);
+            setPreviewImageId(target.id);
+        }
+    }, [canGoPrevDetectionPreview, detectionVisibleImages, detectionPreviewIndex]);
+
+    const goToNextDetectionPreviewImage = useCallback(() => {
+        if (!canGoNextDetectionPreview) return;
+        const target = detectionVisibleImages[detectionPreviewIndex + 1];
+        if (target) {
+            setActiveImageId(target.id);
+            setPreviewImageId(target.id);
+        }
+    }, [canGoNextDetectionPreview, detectionVisibleImages, detectionPreviewIndex]);
+
+    const handleDeleteFromDetectionPreview = useCallback(async (imageId: string) => {
+        const index = detectionVisibleImages.findIndex((image) => image.id === imageId);
+        const nextImageId = index >= 0 && index < detectionVisibleImages.length - 1
+            ? detectionVisibleImages[index + 1].id
+            : index > 0
+                ? detectionVisibleImages[index - 1].id
+                : null;
+        const deleted = await handleDeleteImages([imageId]);
+        if (!deleted) return;
+        setPreviewImageId(nextImageId);
+        setActiveImageId(nextImageId);
+    }, [detectionVisibleImages, handleDeleteImages]);
 
     const normalizeBox = (box: BoundingBox): BoundingBox => {
         const clamp = (value: number) => Math.max(0, Math.min(1, value));
@@ -2329,7 +2365,7 @@ export const ProjectDataset = () => {
         if (selectedImage) {
             drawBoxes(selectedImage.boxes, draftBox);
         }
-    }, [selectedImage, draftBox, editingBoxIndex, editingBoxDraft, classColorMap, classMap]);
+    }, [selectedImage, draftBox, editingBoxIndex, editingBoxDraft, classColorMap, classMap, isDetectionPreviewOpen]);
 
     const getRelativePoint = (event: React.MouseEvent<HTMLDivElement, MouseEvent>, clampToImage = false) => {
         const { image: img } = getDrawingSurface();
@@ -2563,20 +2599,39 @@ export const ProjectDataset = () => {
                 setPreviewImageId(null);
                 return;
             }
-            if (dataset?.task !== 'classification') return;
+            if (dataset?.task === 'classification') {
+                if (event.key === 'ArrowLeft') {
+                    event.preventDefault();
+                    goToPreviousPreviewImage();
+                    return;
+                }
+                if (event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    goToNextPreviewImage();
+                }
+                return;
+            }
+            if (dataset?.task !== 'detection') return;
             if (event.key === 'ArrowLeft') {
                 event.preventDefault();
-                goToPreviousPreviewImage();
+                goToPreviousDetectionPreviewImage();
                 return;
             }
             if (event.key === 'ArrowRight') {
                 event.preventDefault();
-                goToNextPreviewImage();
+                goToNextDetectionPreviewImage();
             }
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [dataset?.task, goToNextPreviewImage, goToPreviousPreviewImage, previewImageId]);
+    }, [
+        dataset?.task,
+        goToNextDetectionPreviewImage,
+        goToNextPreviewImage,
+        goToPreviousDetectionPreviewImage,
+        goToPreviousPreviewImage,
+        previewImageId
+    ]);
 
     useEffect(() => {
         if (dataset?.task !== 'classification' || classes.length === 0) return;
@@ -2638,6 +2693,7 @@ export const ProjectDataset = () => {
         const handleArrowNav = (event: KeyboardEvent) => {
             if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
             if (isEditableTarget(event.target)) return;
+            if (previewImageId) return;
             if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
                 event.preventDefault();
                 goToPreviousDetectionImage();
@@ -2648,7 +2704,7 @@ export const ProjectDataset = () => {
         };
         window.addEventListener('keydown', handleArrowNav);
         return () => window.removeEventListener('keydown', handleArrowNav);
-    }, [dataset?.task, goToPreviousDetectionImage, goToNextDetectionImage]);
+    }, [dataset?.task, goToPreviousDetectionImage, goToNextDetectionImage, previewImageId]);
 
     useEffect(() => {
         if (dataset?.task !== 'detection') return;
