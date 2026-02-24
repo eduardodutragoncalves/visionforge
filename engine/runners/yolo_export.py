@@ -651,34 +651,217 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
     profile = _target_profile(target_id)
     default_device = str(profile.get("default_device") or "cpu").strip() or "cpu"
+    backend_order_raw = profile.get("backend_order") or ["onnx", "onnx_cpu"]
+    default_backend_order = [str(item).strip().lower() for item in backend_order_raw if str(item).strip()]
+    if not default_backend_order:
+        default_backend_order = ["onnx", "onnx_cpu"]
+    default_backend_order_json = json.dumps(default_backend_order)
     normalized_task = str(model_task or "").strip().lower()
+    runtime_backend_py = package_dir / "runtime_backend.py"
 
-    run_script = textwrap.dedent(
+    runtime_backend_script = textwrap.dedent(
         """
         import os
-        import sys
         from pathlib import Path
+        from typing import Any, Dict, List
 
         os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         from ultralytics import YOLO
 
+
+        SUPPORTED_BACKENDS = {"ultralytics", "onnx", "onnx_cpu"}
+
+
+        def _normalize_backend(value: str) -> str:
+            return str(value or "").strip().lower()
+
+
+        def _parse_backend_order(raw: str, default_order: List[str]) -> List[str]:
+            if not raw:
+                return list(default_order)
+            parsed: List[str] = []
+            for item in str(raw).split(","):
+                backend = _normalize_backend(item)
+                if backend in SUPPORTED_BACKENDS and backend not in parsed:
+                    parsed.append(backend)
+            return parsed or list(default_order)
+
+
+        def _select_ultralytics_device(requested: str) -> str:
+            requested_norm = _normalize_backend(requested)
+            if requested and requested_norm != "auto":
+                return str(requested).strip()
+            try:
+                import torch  # type: ignore
+
+                if bool(torch.cuda.is_available()):
+                    return "cuda:0"
+            except Exception:
+                pass
+            return "cpu"
+
+
+        def _select_device(backend: str, requested: str) -> str:
+            backend = _normalize_backend(backend)
+            requested_norm = _normalize_backend(requested)
+            if backend == "onnx_cpu":
+                return "cpu"
+            if requested and requested_norm != "auto":
+                return str(requested).strip()
+            if backend == "onnx":
+                return "cuda:0"
+            return _select_ultralytics_device(requested)
+
+
+        class RuntimeBackend:
+            def __init__(
+                self,
+                package_dir: Path,
+                model_task: str,
+                backend_order: List[str],
+                requested_device: str,
+            ):
+                self.package_dir = Path(package_dir)
+                self.model_task = str(model_task or "").strip().lower()
+                self.backend_order = [item for item in backend_order if item in SUPPORTED_BACKENDS]
+                if not self.backend_order:
+                    self.backend_order = ["onnx", "onnx_cpu"]
+                self.requested_device = str(requested_device or "auto").strip() or "auto"
+                self.backend = ""
+                self.device = ""
+                self.model_path: Path = self.package_dir / "artifacts" / "model.onnx"
+                self._model: Any = None
+                self._index = -1
+                self._errors: List[str] = []
+                if not self._activate_next(initial=True):
+                    details = "; ".join(self._errors) or "no backend available"
+                    raise RuntimeError(f"Failed to initialize runtime backend: {details}")
+
+            def _candidate_path(self, backend: str) -> Path:
+                if backend == "ultralytics":
+                    return self.package_dir / "artifacts" / "model.pt"
+                return self.package_dir / "artifacts" / "model.onnx"
+
+            def _activate_next(self, initial: bool = False) -> bool:
+                while self._index + 1 < len(self.backend_order):
+                    self._index += 1
+                    backend = self.backend_order[self._index]
+                    model_path = self._candidate_path(backend)
+                    if not model_path.exists():
+                        self._errors.append(f"{backend}: missing artifact {model_path.name}")
+                        continue
+                    kwargs: Dict[str, Any] = {"task": self.model_task} if self.model_task else {}
+                    try:
+                        self._model = YOLO(str(model_path), **kwargs)
+                    except Exception as exc:
+                        self._errors.append(f"{backend}: {exc}")
+                        self._model = None
+                        continue
+                    self.backend = backend
+                    self.model_path = model_path
+                    self.device = _select_device(backend, self.requested_device)
+                    if initial:
+                        print(f"[runtime] backend={self.backend} device={self.device} model={self.model_path.name}")
+                    else:
+                        print(f"[runtime] fallback backend={self.backend} device={self.device} model={self.model_path.name}")
+                    return True
+                return False
+
+            def predict(self, source: Any, conf: float = None, iou: float = None, verbose: bool = False):
+                last_exc: Exception = None
+                while True:
+                    if self._model is None:
+                        if not self._activate_next(initial=False):
+                            details = "; ".join(self._errors[-6:]) or "no backend available"
+                            raise RuntimeError(f"Inference failed on all backends: {details}") from last_exc
+
+                    kwargs: Dict[str, Any] = {
+                        "source": source,
+                        "verbose": bool(verbose),
+                        "device": self.device,
+                    }
+                    if conf is not None:
+                        kwargs["conf"] = float(conf)
+                    if iou is not None:
+                        kwargs["iou"] = float(iou)
+
+                    try:
+                        return self._model.predict(**kwargs)
+                    except Exception as exc:
+                        last_exc = exc
+                        self._errors.append(f"{self.backend}: {exc}")
+                        print(f"[runtime] backend {self.backend} failed: {exc}")
+                        self._model = None
+                        if self._index >= len(self.backend_order) - 1:
+                            details = "; ".join(self._errors[-6:])
+                            raise RuntimeError(f"Inference failed on all backends: {details}") from exc
+
+
+        def create_runtime(
+            package_dir: Path,
+            model_task: str,
+            default_backend_order: List[str],
+            backend: str = "auto",
+            device: str = "auto",
+        ) -> RuntimeBackend:
+            force_backend = _normalize_backend(os.getenv("VISIONFORGE_FORCE_BACKEND", ""))
+            selected_backend = _normalize_backend(backend)
+            requested_device = str(os.getenv("VISIONFORGE_DEVICE", device)).strip() or "auto"
+
+            if force_backend in SUPPORTED_BACKENDS:
+                order = [force_backend]
+            elif selected_backend in SUPPORTED_BACKENDS:
+                order = [selected_backend]
+            else:
+                order = _parse_backend_order(os.getenv("VISIONFORGE_BACKEND_ORDER", ""), default_backend_order)
+
+            if "onnx_cpu" not in order:
+                order.append("onnx_cpu")
+
+            return RuntimeBackend(
+                package_dir=Path(package_dir),
+                model_task=model_task,
+                backend_order=order,
+                requested_device=requested_device,
+            )
+        """
+    ).strip() + "\n"
+    runtime_backend_py.write_text(runtime_backend_script, encoding="utf-8")
+
+    run_script = textwrap.dedent(
+        """
+        import argparse
+        import os
+        from pathlib import Path
+
+        from runtime_backend import create_runtime
+
         MODEL_TASK = "__MODEL_TASK__"
         DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
+        DEFAULT_BACKEND_ORDER = __DEFAULT_BACKEND_ORDER__
 
 
         def main():
-            if len(sys.argv) < 2:
-                print("Usage: python run_local.py <image_path>")
-                sys.exit(1)
-            image_path = Path(sys.argv[1]).expanduser().resolve()
+            parser = argparse.ArgumentParser(description="Run inference for a single image")
+            parser.add_argument("image_path", help="Path to image file")
+            parser.add_argument("--backend", default=os.getenv("VISIONFORGE_FORCE_BACKEND", "auto"))
+            parser.add_argument("--device", default=os.getenv("VISIONFORGE_DEVICE", DEFAULT_DEVICE))
+            args = parser.parse_args()
+
+            image_path = Path(args.image_path).expanduser().resolve()
             if not image_path.exists():
                 print(f"Image not found: {image_path}")
-                sys.exit(1)
-            model_path = Path(__file__).resolve().parent / "artifacts" / "__MODEL_FILENAME__"
-            kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
-            model = YOLO(str(model_path), **kwargs)
-            device = (os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE).strip() or "cpu"
-            results = model.predict(source=str(image_path), verbose=False, device=device)
+                raise SystemExit(1)
+
+            package_dir = Path(__file__).resolve().parent
+            runtime = create_runtime(
+                package_dir=package_dir,
+                model_task=MODEL_TASK,
+                default_backend_order=DEFAULT_BACKEND_ORDER,
+                backend=str(args.backend or "auto"),
+                device=str(args.device or DEFAULT_DEVICE),
+            )
+            results = runtime.predict(source=str(image_path), verbose=False)
             if not results:
                 print("No results produced")
                 return
@@ -717,6 +900,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         .replace("__MODEL_FILENAME__", model_filename)
         .replace("__MODEL_TASK__", normalized_task)
         .replace("__DEFAULT_DEVICE__", default_device)
+        .replace("__DEFAULT_BACKEND_ORDER__", default_backend_order_json)
     )
     run_py.write_text(run_content, encoding="utf-8")
 
@@ -724,17 +908,16 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         """
         import argparse
         import json
-        import os
         import shutil
         from pathlib import Path
         from typing import Any, Dict, List, Optional
 
-        os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         import cv2
-        from ultralytics import YOLO
+        from runtime_backend import create_runtime
 
         MODEL_TASK = "__MODEL_TASK__"
         DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
+        DEFAULT_BACKEND_ORDER = __DEFAULT_BACKEND_ORDER__
 
 
         def normalize_class(value: Any) -> str:
