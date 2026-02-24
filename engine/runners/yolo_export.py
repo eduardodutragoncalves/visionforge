@@ -1838,6 +1838,17 @@ def _write_runtime_assets(package_dir: Path, target_id: str):
         WORKDIR /opt/visionforge
         COPY requirements.runtime.txt ./requirements.runtime.txt
 
+        RUN apt-get update \\
+            && apt-get install -y --no-install-recommends \\
+                libglib2.0-0 \\
+                libgl1 \\
+                libsm6 \\
+                libxext6 \\
+                libxrender1 \\
+                libx11-6 \\
+                libxcb1 \\
+            && rm -rf /var/lib/apt/lists/*
+
         RUN python -m pip install --upgrade pip setuptools wheel \\
             && python -m pip install -r requirements.runtime.txt
 
