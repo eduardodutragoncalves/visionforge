@@ -1365,14 +1365,22 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
 
         def main():
-            global DEVICE
+            global SELECTED_BACKEND, SELECTED_DEVICE, RUNTIME
             parser = argparse.ArgumentParser(description="VisionForge inference server")
             parser.add_argument("--host", default="0.0.0.0")
             parser.add_argument("--port", type=int, default=8090)
-            parser.add_argument("--device", default=DEVICE, help="Inference device, e.g. cpu or cuda:0")
+            parser.add_argument("--backend", default="auto", help="auto|ultralytics|onnx|onnx_cpu")
+            parser.add_argument("--device", default=DEFAULT_DEVICE, help="Inference device, e.g. auto|cpu|cuda:0")
             args = parser.parse_args()
-            DEVICE = str(args.device).strip() or "cpu"
-            print(f"VisionForge inference server running at http://{args.host}:{args.port} (device={DEVICE})")
+            SELECTED_BACKEND = str(args.backend or "auto")
+            SELECTED_DEVICE = str(args.device or DEFAULT_DEVICE)
+            RUNTIME = None
+            runtime = get_runtime()
+            print(
+                "VisionForge inference server running at "
+                f"http://{args.host}:{args.port} "
+                f"(backend={runtime.backend}, device={runtime.device})"
+            )
             APP.run(host=args.host, port=args.port, debug=False)
 
 
@@ -1385,6 +1393,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         .replace("__MODEL_FILENAME__", model_filename)
         .replace("__MODEL_TASK__", normalized_task)
         .replace("__DEFAULT_DEVICE__", default_device)
+        .replace("__DEFAULT_BACKEND_ORDER__", default_backend_order_json)
     )
     server_py.write_text(server_content, encoding="utf-8")
 
@@ -1392,21 +1401,20 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         """
         import argparse
         import json
-        import os
         import time
         from pathlib import Path
         from urllib.parse import urljoin
 
-        os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         import cv2
         import requests
-        from ultralytics import YOLO
+        from runtime_backend import create_runtime
 
 
         IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
         VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
         MODEL_TASK = "__MODEL_TASK__"
         DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
+        DEFAULT_BACKEND_ORDER = __DEFAULT_BACKEND_ORDER__
 
 
         def summarize(result):
@@ -1427,8 +1435,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 print(f"  class={result.names[int(box.cls)]} conf={float(box.conf):.4f}")
 
 
-        def infer_image(model, image_path: Path, out_dir: Path, conf: float, device: str):
-            results = model.predict(source=str(image_path), verbose=False, conf=conf, device=device)
+        def infer_image(runtime, image_path: Path, out_dir: Path, conf: float):
+            results = runtime.predict(source=str(image_path), verbose=False, conf=conf)
             if not results:
                 raise RuntimeError("No result produced for image")
             result = results[0]
@@ -1439,7 +1447,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             return out_path
 
 
-        def infer_video(model, video_path: Path, out_dir: Path, conf: float, device: str):
+        def infer_video(runtime, video_path: Path, out_dir: Path, conf: float):
             cap = cv2.VideoCapture(str(video_path))
             if not cap.isOpened():
                 raise RuntimeError(f"Could not open video: {video_path}")
@@ -1465,7 +1473,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 ok, frame = cap.read()
                 if not ok:
                     break
-                results = model.predict(source=frame, verbose=False, conf=conf, device=device)
+                results = runtime.predict(source=frame, verbose=False, conf=conf)
                 if results:
                     writer.write(results[0].plot())
                 else:
