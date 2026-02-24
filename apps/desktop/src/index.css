@@ -232,16 +232,6 @@
     @apply relative flex-1 overflow-y-auto px-8 pb-10 pt-6 min-h-0;
   }
 
-  .page-content::after {
-    content: "";
-    position: absolute;
-    right: 8%;
-    top: 18%;
-    width: 90px;
-    height: 2px;
-    background: rgba(47, 184, 255, 0.55);
-  }
-
   .grid-dashboard {
     @apply grid gap-6;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
