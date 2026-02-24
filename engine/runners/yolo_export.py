@@ -25,6 +25,7 @@ TARGET_LABELS = {
 TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "edge_jetson": {
         "shell": "bash",
+        "min_python": "3.8",
         "conda_env_name": "vf_deploy",
         "conda_python": "3.8",
         "docker_base_image": "nvcr.io/nvidia/l4t-ml:r35.4.1-py3",
@@ -56,12 +57,13 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "edge_raspberry_pi": {
         "shell": "bash",
+        "min_python": "3.8",
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
-        "venv_create": "python3 -m venv .venv",
+        "venv_create": "python3.10 -m venv .venv 2>/dev/null || python3.11 -m venv .venv 2>/dev/null || python3.9 -m venv .venv 2>/dev/null || python3.8 -m venv .venv 2>/dev/null || (echo 'Python 3.8+ required (3.10 recommended).' && false)",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnx onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "serve_cmd": "bash serve_linux.sh",
@@ -78,12 +80,13 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "edge_orange_pi": {
         "shell": "bash",
+        "min_python": "3.8",
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
-        "venv_create": "python3 -m venv .venv",
+        "venv_create": "python3.10 -m venv .venv 2>/dev/null || python3.11 -m venv .venv 2>/dev/null || python3.9 -m venv .venv 2>/dev/null || python3.8 -m venv .venv 2>/dev/null || (echo 'Python 3.8+ required (3.10 recommended).' && false)",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnx onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "serve_cmd": "bash serve_linux.sh",
@@ -100,12 +103,13 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "edge_generic": {
         "shell": "bash",
+        "min_python": "3.8",
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
-        "venv_create": "python3 -m venv .venv",
+        "venv_create": "python3.10 -m venv .venv 2>/dev/null || python3.11 -m venv .venv 2>/dev/null || python3.9 -m venv .venv 2>/dev/null || python3.8 -m venv .venv 2>/dev/null || (echo 'Python 3.8+ required (3.10 recommended).' && false)",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnx onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "serve_cmd": "bash serve_linux.sh",
@@ -122,12 +126,13 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "desktop_linux": {
         "shell": "bash",
+        "min_python": "3.8",
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
-        "venv_create": "python3 -m venv .venv",
+        "venv_create": "python3.10 -m venv .venv 2>/dev/null || python3.11 -m venv .venv 2>/dev/null || python3.9 -m venv .venv 2>/dev/null || python3.8 -m venv .venv 2>/dev/null || (echo 'Python 3.8+ required (3.10 recommended).' && false)",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnx onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "serve_cmd": "bash serve_linux.sh",
@@ -144,12 +149,13 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "desktop_macos": {
         "shell": "bash",
+        "min_python": "3.8",
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
-        "venv_create": "python3 -m venv .venv",
+        "venv_create": "python3.10 -m venv .venv 2>/dev/null || python3.11 -m venv .venv 2>/dev/null || python3.9 -m venv .venv 2>/dev/null || python3.8 -m venv .venv 2>/dev/null || (echo 'Python 3.8+ required (3.10 recommended).' && false)",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnx onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_macos.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_macos.sh",
         "serve_cmd": "bash serve_macos.sh",
@@ -166,12 +172,13 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "desktop_windows": {
         "shell": "powershell",
+        "min_python": "3.8",
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
-        "venv_create": "python -m venv .venv",
+        "venv_create": "if (Get-Command py -ErrorAction SilentlyContinue) { py -3.10 -m venv .venv } else { python -m venv .venv }",
         "venv_activate": ".\\.venv\\Scripts\\Activate.ps1",
-        "install_cmd": "python -m pip install --upgrade pip; python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python -m pip install --upgrade pip; python -m pip install ultralytics onnx onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": ".\\run_windows.ps1 -ImagePath validation\\images\\<image_file>",
         "validation_cmd": ".\\validate_windows.ps1",
         "serve_cmd": ".\\serve_windows.ps1 -Host 0.0.0.0 -Port 8090",
@@ -213,7 +220,21 @@ def _venv_install_cmd(profile: Dict[str, Any], shell: str) -> str:
     placeholder = "__VF_PIP_CMD__"
     install_cmd = install_cmd.replace("python3 -m pip", placeholder)
     install_cmd = install_cmd.replace("python -m pip", placeholder)
-    return install_cmd.replace(placeholder, f"{venv_python} -m pip")
+    install_cmd = install_cmd.replace(placeholder, f"{venv_python} -m pip")
+
+    min_python_raw = str(profile.get("min_python") or "").strip()
+    try:
+        major_str, minor_str = min_python_raw.split(".", 1)
+        major = int(major_str)
+        minor = int(minor_str)
+    except Exception:
+        major, minor = 3, 8
+    version_check = (
+        f"{venv_python} -c \"import sys; min_v=({major}, {minor}); "
+        f"sys.exit('Python {major}.{minor}+ required, found ' + sys.version.split()[0]) "
+        "if sys.version_info < min_v else None\""
+    )
+    return f"{version_check}\n{install_cmd}"
 
 
 def _normalize_class_key(value: Any) -> str:
@@ -1612,6 +1633,14 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
     profile = _target_profile(target_id)
     script_files = profile.get("script_files", [])
+    min_python_raw = str(profile.get("min_python") or "").strip()
+    try:
+        min_major_str, min_minor_str = min_python_raw.split(".", 1)
+        min_major = int(min_major_str)
+        min_minor = int(min_minor_str)
+    except Exception:
+        min_major, min_minor = 3, 8
+    min_python_label = f"{min_major}.{min_minor}"
     bash_python_bootstrap = (
         "if [ -x \"./.venv/bin/python\" ]; then\n"
         "  PYTHON_BIN=\"./.venv/bin/python\"\n"
@@ -1626,12 +1655,23 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         "    exit 1\n"
         "  fi\n"
         "fi\n"
+        + f"if ! \"$PYTHON_BIN\" -c \"import sys; raise SystemExit(0 if sys.version_info >= ({min_major}, {min_minor}) else 1)\" >/dev/null 2>&1; then\n"
+        + "  PYTHON_VER=\"$($PYTHON_BIN -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || echo unknown)\"\n"
+        + f"  echo \"Python {min_python_label}+ required for this package (found: $PYTHON_VER). Recreate .venv with python3.10.\"\n"
+        + "  exit 1\n"
+        + "fi\n"
     )
     powershell_python_bootstrap = (
         "$PythonBin = \".\\.venv\\Scripts\\python.exe\"\n"
         "if (-not (Test-Path $PythonBin)) {\n"
         "  $PythonBin = \"python\"\n"
         "}\n"
+        + f"& $PythonBin -c \"import sys; raise SystemExit(0 if sys.version_info >= ({min_major}, {min_minor}) else 1)\"\n"
+        + "if ($LASTEXITCODE -ne 0) {\n"
+        + "  $PythonVer = & $PythonBin -c \"import sys; print(sys.version.split()[0])\"\n"
+        + f"  Write-Error \"Python {min_python_label}+ required for this package (found: $PythonVer). Recreate .venv with Python 3.10.\"\n"
+        + "  exit $LASTEXITCODE\n"
+        + "}\n"
     )
     for filename in script_files:
         target_path = package_dir / filename
