@@ -31,9 +31,9 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "venv_create": "python3.8 -m venv .venv 2>/dev/null || python3.10 -m venv .venv 2>/dev/null || python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
         "install_cmd": (
-            "python -m pip install --upgrade pip setuptools wheel && \\\n"
-            "python -m pip install ultralytics onnx opencv-python numpy flask requests && \\\n"
-            "(python -m pip install onnxruntime-gpu || python -m pip install onnxruntime || \\\n"
+            "python3 -m pip install --upgrade pip setuptools wheel && \\\n"
+            "python3 -m pip install ultralytics onnx opencv-python numpy flask requests && \\\n"
+            "(python3 -m pip install onnxruntime-gpu || python3 -m pip install onnxruntime || \\\n"
             "  (echo 'Install NVIDIA ONNX Runtime wheel compatible with your JetPack version before inference.' && false))"
         ),
         "onnx_opset": 19,
@@ -61,7 +61,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "serve_cmd": "bash serve_linux.sh",
@@ -83,7 +83,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "serve_cmd": "bash serve_linux.sh",
@@ -105,7 +105,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "serve_cmd": "bash serve_linux.sh",
@@ -127,7 +127,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_linux.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_linux.sh",
         "serve_cmd": "bash serve_linux.sh",
@@ -149,7 +149,7 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
         "docker_base_image": "python:3.10-slim",
         "venv_create": "python3 -m venv .venv",
         "venv_activate": "source .venv/bin/activate",
-        "install_cmd": "python -m pip install --upgrade pip && python -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
+        "install_cmd": "python3 -m pip install --upgrade pip && python3 -m pip install ultralytics onnxruntime opencv-python numpy flask requests",
         "single_infer_cmd": "bash run_macos.sh validation/images/<image_file>",
         "validation_cmd": "bash validate_macos.sh",
         "serve_cmd": "bash serve_macos.sh",
@@ -1583,6 +1583,17 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
     profile = _target_profile(target_id)
     script_files = profile.get("script_files", [])
+    bash_python_bootstrap = (
+        "PYTHON_BIN=\"${PYTHON_BIN:-python}\"\n"
+        "if ! command -v \"$PYTHON_BIN\" >/dev/null 2>&1; then\n"
+        "  if command -v python3 >/dev/null 2>&1; then\n"
+        "    PYTHON_BIN=\"python3\"\n"
+        "  else\n"
+        "    echo 'Python interpreter not found. Install python3 or set PYTHON_BIN.'\n"
+        "    exit 1\n"
+        "  fi\n"
+        "fi\n"
+    )
     for filename in script_files:
         target_path = package_dir / filename
         if filename.endswith(".ps1"):
@@ -1645,33 +1656,37 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             target_path.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
+                + bash_python_bootstrap
                 "if [ $# -lt 1 ]; then\n"
                 "  echo 'Usage: bash " + filename + " <image_path>'\n"
                 "  exit 1\n"
                 "fi\n"
-                "python run_local.py \"$1\"\n",
+                "\"$PYTHON_BIN\" run_local.py \"$1\"\n",
                 encoding="utf-8",
             )
         elif filename.startswith("validate_"):
             target_path.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
-                "python validate_batch.py\n",
+                + bash_python_bootstrap
+                + "\"$PYTHON_BIN\" validate_batch.py\n",
                 encoding="utf-8",
             )
         elif filename.startswith("serve_"):
             target_path.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
+                + bash_python_bootstrap
                 "HOST=\"${1:-0.0.0.0}\"\n"
                 "PORT=\"${2:-8090}\"\n"
-                "python inference_server.py --host \"$HOST\" --port \"$PORT\"\n",
+                "\"$PYTHON_BIN\" inference_server.py --host \"$HOST\" --port \"$PORT\"\n",
                 encoding="utf-8",
             )
         elif filename.startswith("example_"):
             target_path.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
+                + bash_python_bootstrap
                 "if [ $# -lt 1 ]; then\n"
                 "  echo 'Usage: bash " + filename + " <image_or_video_path> [conf] [server_url]'\n"
                 "  exit 1\n"
@@ -1679,9 +1694,9 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 "CONF=\"${2:-0.25}\"\n"
                 "SERVER_URL=\"${3:-}\"\n"
                 "if [ -n \"$SERVER_URL\" ]; then\n"
-                "  python integration_example.py --source \"$1\" --conf \"$CONF\" --server-url \"$SERVER_URL\"\n"
+                "  \"$PYTHON_BIN\" integration_example.py --source \"$1\" --conf \"$CONF\" --server-url \"$SERVER_URL\"\n"
                 "else\n"
-                "  python integration_example.py --source \"$1\" --conf \"$CONF\"\n"
+                "  \"$PYTHON_BIN\" integration_example.py --source \"$1\" --conf \"$CONF\"\n"
                 "fi\n",
                 encoding="utf-8",
             )
@@ -1689,17 +1704,19 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             target_path.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
+                + bash_python_bootstrap
                 "HOST=\"${1:-0.0.0.0}\"\n"
                 "PORT=\"${2:-7860}\"\n"
                 "SERVER_URL=\"${3:-http://127.0.0.1:8090}\"\n"
-                "python demo_app.py --host \"$HOST\" --port \"$PORT\" --server-url \"$SERVER_URL\"\n",
+                "\"$PYTHON_BIN\" demo_app.py --host \"$HOST\" --port \"$PORT\" --server-url \"$SERVER_URL\"\n",
                 encoding="utf-8",
             )
         else:
             target_path.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
-                "python run_local.py\n",
+                + bash_python_bootstrap
+                + "\"$PYTHON_BIN\" run_local.py\n",
                 encoding="utf-8",
             )
         target_path.chmod(0o755)
