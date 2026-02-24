@@ -26,6 +26,8 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "edge_jetson": {
         "shell": "bash",
         "min_python": "3.8",
+        "default_device": "cpu",
+        "backend_order": ["onnx", "onnx_cpu"],
         "conda_env_name": "vf_deploy",
         "conda_python": "3.8",
         "docker_base_image": "nvcr.io/nvidia/l4t-ml:r35.4.1-py3",
@@ -58,6 +60,8 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "edge_raspberry_pi": {
         "shell": "bash",
         "min_python": "3.8",
+        "default_device": "cpu",
+        "backend_order": ["onnx", "onnx_cpu"],
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
@@ -81,6 +85,8 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "edge_orange_pi": {
         "shell": "bash",
         "min_python": "3.8",
+        "default_device": "cpu",
+        "backend_order": ["onnx", "onnx_cpu"],
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
@@ -104,6 +110,8 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "edge_generic": {
         "shell": "bash",
         "min_python": "3.8",
+        "default_device": "cpu",
+        "backend_order": ["onnx", "onnx_cpu"],
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
@@ -127,6 +135,8 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "desktop_linux": {
         "shell": "bash",
         "min_python": "3.8",
+        "default_device": "auto",
+        "backend_order": ["ultralytics", "onnx", "onnx_cpu"],
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
@@ -150,6 +160,8 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "desktop_macos": {
         "shell": "bash",
         "min_python": "3.8",
+        "default_device": "cpu",
+        "backend_order": ["onnx", "onnx_cpu"],
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
@@ -173,6 +185,8 @@ TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
     "desktop_windows": {
         "shell": "powershell",
         "min_python": "3.8",
+        "default_device": "auto",
+        "backend_order": ["ultralytics", "onnx", "onnx_cpu"],
         "conda_env_name": "vf_deploy",
         "conda_python": "3.10",
         "docker_base_image": "python:3.10-slim",
