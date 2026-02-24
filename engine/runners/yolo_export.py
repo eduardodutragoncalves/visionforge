@@ -1521,13 +1521,13 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         def main():
             parser = argparse.ArgumentParser(description="VisionForge integration example for image/video inference")
             parser.add_argument("--source", required=True, help="Image or video file path")
-            parser.add_argument("--model", default="artifacts/__MODEL_FILENAME__", help="Relative model path inside package")
             parser.add_argument("--out-dir", default="example_outputs", help="Output directory for annotated files")
             parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
             parser.add_argument("--iou", type=float, default=0.7, help="IoU threshold")
             parser.add_argument("--server-url", default="", help="Optional inference server URL, e.g. http://127.0.0.1:8090")
             parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds for server mode")
-            parser.add_argument("--device", default=(os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE), help="Inference device for local mode, e.g. cpu or cuda:0")
+            parser.add_argument("--backend", default="auto", help="auto|ultralytics|onnx|onnx_cpu")
+            parser.add_argument("--device", default=DEFAULT_DEVICE, help="Inference device for local mode, e.g. auto|cpu|cuda:0")
             args = parser.parse_args()
 
             package_dir = Path(__file__).resolve().parent
@@ -1551,18 +1551,19 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 print(f"Done via server in {time.time() - started:.2f}s")
                 return
 
-            model_path = (package_dir / args.model).resolve()
-            if not model_path.exists():
-                raise FileNotFoundError(f"Model not found: {model_path}")
-            kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
-            model = YOLO(str(model_path), **kwargs)
-            device = str(args.device).strip() or "cpu"
+            runtime = create_runtime(
+                package_dir=package_dir,
+                model_task=MODEL_TASK,
+                default_backend_order=DEFAULT_BACKEND_ORDER,
+                backend=str(args.backend or "auto"),
+                device=str(args.device or DEFAULT_DEVICE),
+            )
             suffix = source_path.suffix.lower()
             if suffix in IMAGE_EXTENSIONS:
-                out_path = infer_image(model, source_path, out_dir, args.conf, device)
+                out_path = infer_image(runtime, source_path, out_dir, args.conf)
                 print(f"Annotated image saved: {out_path}")
             elif suffix in VIDEO_EXTENSIONS:
-                out_path, frames = infer_video(model, source_path, out_dir, args.conf, device)
+                out_path, frames = infer_video(runtime, source_path, out_dir, args.conf)
                 print(f"Annotated video saved: {out_path}")
                 print(f"Frames processed: {frames}")
             else:
@@ -1579,6 +1580,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         .replace("__MODEL_FILENAME__", model_filename)
         .replace("__MODEL_TASK__", normalized_task)
         .replace("__DEFAULT_DEVICE__", default_device)
+        .replace("__DEFAULT_BACKEND_ORDER__", default_backend_order_json)
     )
     example_py.write_text(example_content, encoding="utf-8")
 
