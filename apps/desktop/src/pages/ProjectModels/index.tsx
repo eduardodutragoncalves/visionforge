@@ -77,7 +77,12 @@ interface Variant {
     base_model: string;
     metrics: {
         final_map?: number;
+        map50?: number;
+        map5095?: number;
         accuracy?: number;
+        accuracy_top5?: number;
+        precision?: number;
+        recall?: number;
         loss?: number;
     };
     run_id: string;
@@ -129,6 +134,7 @@ interface SummaryMetricCardProps {
 
 type ModelValidationFilter = 'all' | 'validated' | 'not_validated';
 type ModelDeploymentFilter = 'all' | 'deployed' | 'not_deployed' | 'deploying';
+type DatasetTask = 'classification' | 'detection';
 type ModelSortBy =
     | 'newest'
     | 'oldest'
@@ -177,6 +183,40 @@ const formatAccuracyBadge = (value?: number | null) => {
     const percent = toAccuracyPercent(value);
     if (percent === null) return '—';
     return `${percent.toFixed(1)}%`;
+};
+
+const asMetricNumber = (value: unknown): number | null => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return null;
+    return value;
+};
+
+const resolveVariantTask = (variant: Variant, fallbackTask: DatasetTask | null): DatasetTask => {
+    const modelName = String(variant.base_model || '').toLowerCase();
+    if (modelName.includes('-cls')) return 'classification';
+    if (fallbackTask) return fallbackTask;
+
+    const hasMapMetric = asMetricNumber(variant.metrics.final_map) !== null || asMetricNumber(variant.metrics.map50) !== null;
+    const hasAccuracyMetric = asMetricNumber(variant.metrics.accuracy) !== null;
+    if (hasMapMetric) return 'detection';
+    if (hasAccuracyMetric) return 'classification';
+    return 'detection';
+};
+
+const getVariantPrimaryMetric = (variant: Variant, task: DatasetTask) => {
+    if (task === 'classification') {
+        return {
+            key: 'accuracy',
+            label: 'Train accuracy',
+            value: asMetricNumber(variant.metrics.accuracy),
+            format: 'percent' as const
+        };
+    }
+    return {
+        key: 'final_map',
+        label: 'Train mAP50',
+        value: asMetricNumber(variant.metrics.final_map) ?? asMetricNumber(variant.metrics.map50),
+        format: 'decimal' as const
+    };
 };
 
 const normalizedValidation = (validation?: ValidationSummary) => {
@@ -423,6 +463,7 @@ export const ProjectModels = () => {
     const [deploymentTargetFilter, setDeploymentTargetFilter] = useState<string>('all');
     const [deploymentSortBy, setDeploymentSortBy] = useState<DeploymentSortBy>('newest');
     const [deletingDeploymentKey, setDeletingDeploymentKey] = useState<string | null>(null);
+    const [datasetTask, setDatasetTask] = useState<DatasetTask | null>(null);
 
     const fetchVariants = useCallback(async () => {
         if (!projectId) return;
@@ -435,6 +476,22 @@ export const ProjectModels = () => {
     useEffect(() => {
         fetchVariants();
     }, [fetchVariants]);
+
+    useEffect(() => {
+        if (!projectId) return;
+        const loadDatasetTask = async () => {
+            try {
+                const res = await fetch(`${ENGINE_HTTP_URL}/projects/${projectId}/dataset`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const task = data?.task === 'classification' ? 'classification' : 'detection';
+                setDatasetTask(task);
+            } catch {
+                // ignore
+            }
+        };
+        void loadDatasetTask();
+    }, [projectId]);
 
     useEffect(() => {
         const timer = window.setInterval(() => setNowTs(Date.now()), 1000);
