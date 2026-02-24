@@ -157,7 +157,7 @@ const targetIcon = (targetId: string): LucideIcon => {
 };
 
 const formatMetric = (value?: number, decimals = 4) => {
-    if (typeof value !== 'number' || Number.isNaN(value)) return '0.0000';
+    if (typeof value !== 'number' || Number.isNaN(value)) return '—';
     return value.toFixed(decimals);
 };
 
@@ -1286,6 +1286,22 @@ export const ProjectModels = () => {
                             : 'No deployments generated yet';
                     const validation = normalizedValidation(variant.validation);
                     const hasValidation = validation.testedImages > 0;
+                    const variantTask = resolveVariantTask(variant, datasetTask);
+                    const primaryMetric = getVariantPrimaryMetric(variant, variantTask);
+                    const primaryMetricValue = primaryMetric.format === 'percent'
+                        ? formatAccuracyBadge(primaryMetric.value)
+                        : formatMetric(primaryMetric.value ?? undefined);
+                    const metricChips = (variantTask === 'classification'
+                        ? [
+                            { key: 'accuracy_top5', label: 'Accuracy top-5', value: asMetricNumber(variant.metrics.accuracy_top5), format: 'percent' as const },
+                            { key: 'loss', label: 'Loss', value: asMetricNumber(variant.metrics.loss), format: 'decimal' as const }
+                        ]
+                        : [
+                            { key: 'map5095', label: 'mAP50-95', value: asMetricNumber(variant.metrics.map5095), format: 'decimal' as const },
+                            { key: 'precision', label: 'Precision', value: asMetricNumber(variant.metrics.precision), format: 'decimal' as const },
+                            { key: 'recall', label: 'Recall', value: asMetricNumber(variant.metrics.recall), format: 'decimal' as const },
+                            { key: 'loss', label: 'Loss', value: asMetricNumber(variant.metrics.loss), format: 'decimal' as const }
+                        ]).filter((metric) => metric.value !== null);
 
                     return (
                         <Card
@@ -1302,22 +1318,26 @@ export const ProjectModels = () => {
 
                             <div className="mt-3 grid grid-cols-2 gap-2">
                                 <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/10 px-2 py-2">
-                                    <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">Train accuracy</div>
-                                    <div className="mt-1 text-lg font-mono text-accent-primary">{formatAccuracyBadge(variant.metrics.accuracy)}</div>
+                                    <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">{primaryMetric.label}</div>
+                                    <div className="mt-1 text-lg font-mono text-accent-primary">{primaryMetricValue}</div>
                                 </div>
                                 <div className={`rounded-lg border px-2 py-2 ${hasValidation ? 'border-accent-success/35 bg-accent-success/10' : 'border-graphite-700/70 bg-graphite-900/70'}`}>
-                                    <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">Validation accuracy</div>
+                                    <div className="text-[10px] uppercase tracking-[0.2em] text-secondary">{validationMetricLabel}</div>
                                     <div className="mt-1 text-lg font-mono text-accent-success">{formatPercent(validation.accuracyPct)}</div>
                                 </div>
                             </div>
 
                             <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[10px] uppercase tracking-[0.16em] text-secondary">
-                                <div className="rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-1.5">
-                                    mAP50 <strong className="text-bone">{formatMetric(variant.metrics.final_map)}</strong>
-                                </div>
-                                <div className="rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-1.5">
-                                    Loss <strong className="text-bone">{formatMetric(variant.metrics.loss)}</strong>
-                                </div>
+                                {metricChips.map((metric) => (
+                                    <div key={`${variant.id}-${metric.key}`} className="rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-1.5">
+                                        {metric.label}{' '}
+                                        <strong className="text-bone">
+                                            {metric.format === 'percent'
+                                                ? formatAccuracyBadge(metric.value)
+                                                : formatMetric(metric.value ?? undefined)}
+                                        </strong>
+                                    </div>
+                                ))}
                                 <div className="rounded border border-graphite-700/70 bg-graphite-900/70 px-2 py-1.5 col-span-2">
                                     Coverage <strong className="text-bone">{formatPercent(validation.coverage)}</strong>
                                 </div>
