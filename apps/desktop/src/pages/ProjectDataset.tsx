@@ -510,6 +510,11 @@ export const ProjectDataset = () => {
         () => images.find((image) => image.id === previewImageId) || null,
         [images, previewImageId]
     );
+    const detectionPreviewImage = useMemo(() => {
+        if (dataset?.task !== 'detection' || !previewImageId) return null;
+        if (selectedImage && selectedImage.id === previewImageId) return selectedImage;
+        return images.find((image) => image.id === previewImageId) || null;
+    }, [dataset?.task, images, previewImageId, selectedImage]);
     const pageLabeledImages = useMemo(
         () => images.filter((image) => image.labels.length > 0),
         [images]
@@ -4214,7 +4219,7 @@ export const ProjectDataset = () => {
                                                     onClick={(event) => {
                                                         event.preventDefault();
                                                         event.stopPropagation();
-                                                        setPreviewImageId(image.id);
+                                                        openDetectionPreview(image.id);
                                                     }}
                                                 >
                                                     <Search size={12} />
