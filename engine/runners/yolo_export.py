@@ -470,6 +470,7 @@ def _build_readme(
 
     command_lang = "powershell" if shell == "powershell" else "bash"
     venv_install_cmd = _venv_install_cmd(profile, shell)
+    min_python = str(profile.get("min_python") or "3.8")
     notes_lines = "\n".join(f"- {line}" for line in profile.get("notes", []))
     script_list = "\n".join(f"- `{name}`" for name in scripts) if scripts else "- No target wrapper scripts generated."
     conda_env_name = str(profile.get("conda_env_name", "vf_deploy"))
@@ -617,6 +618,7 @@ def _build_readme(
         "## Target-Specific Notes\n"
         f"{notes_lines}\n\n"
         "## Troubleshooting\n"
+        f"- Local venv execution requires Python {min_python}+.\n"
         "- If import errors happen, confirm the virtual environment is active.\n"
         "- If pip warns about `~/.local/bin` script location, dependencies were installed outside `.venv`; run Option A again and keep the `.venv` commands exactly as documented.\n"
         "- If Docker fails with `ImportError: libxcb.so.1`, rebuild with this package Dockerfile (it installs OpenCV runtime libs via apt).\n"
