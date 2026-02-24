@@ -619,6 +619,7 @@ def _build_readme(
         f"{notes_lines}\n\n"
         "## Troubleshooting\n"
         f"- Local venv execution requires Python {min_python}+.\n"
+        "- Local scripts default to CPU to avoid optional GPU runtime dependencies; override with `VISIONFORGE_DEVICE=cuda:0` only when ONNX Runtime GPU is correctly installed.\n"
         "- If import errors happen, confirm the virtual environment is active.\n"
         "- If pip warns about `~/.local/bin` script location, dependencies were installed outside `.venv`; run Option A again and keep the `.venv` commands exactly as documented.\n"
         "- If Docker fails with `ImportError: libxcb.so.1`, rebuild with this package Dockerfile (it installs OpenCV runtime libs via apt).\n"
@@ -697,7 +698,13 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             main()
         """
     ).strip() + "\n"
-    run_py.write_text(run_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
+    run_content = (
+        run_script
+        .replace("__MODEL_FILENAME__", model_filename)
+        .replace("__MODEL_TASK__", normalized_task)
+        .replace("__DEFAULT_DEVICE__", default_device)
+    )
+    run_py.write_text(run_content, encoding="utf-8")
 
     validate_script = textwrap.dedent(
         """
@@ -930,7 +937,13 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             main()
         """
     ).strip() + "\n"
-    validate_py.write_text(validate_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
+    validate_content = (
+        validate_script
+        .replace("__MODEL_FILENAME__", model_filename)
+        .replace("__MODEL_TASK__", normalized_task)
+        .replace("__DEFAULT_DEVICE__", default_device)
+    )
+    validate_py.write_text(validate_content, encoding="utf-8")
 
     server_script = textwrap.dedent(
         """
@@ -1149,7 +1162,13 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             main()
         """
     ).strip() + "\n"
-    server_py.write_text(server_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
+    server_content = (
+        server_script
+        .replace("__MODEL_FILENAME__", model_filename)
+        .replace("__MODEL_TASK__", normalized_task)
+        .replace("__DEFAULT_DEVICE__", default_device)
+    )
+    server_py.write_text(server_content, encoding="utf-8")
 
     integration_script = textwrap.dedent(
         """
@@ -1329,16 +1348,24 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             main()
         """
     ).strip() + "\n"
-    example_py.write_text(integration_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
+    example_content = (
+        integration_script
+        .replace("__MODEL_FILENAME__", model_filename)
+        .replace("__MODEL_TASK__", normalized_task)
+        .replace("__DEFAULT_DEVICE__", default_device)
+    )
+    example_py.write_text(example_content, encoding="utf-8")
 
     demo_script = textwrap.dedent(
         """
         import argparse
+        import os
         import time
         from pathlib import Path
         from typing import Optional
         from urllib.parse import urljoin
 
+        os.environ.setdefault("YOLO_AUTOINSTALL", "False")
         import cv2
         import requests
         from flask import Flask, render_template_string, request, send_from_directory
@@ -1352,6 +1379,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         OUTPUT_DIR = PACKAGE_DIR / "demo_outputs"
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        MODEL_TASK = "__MODEL_TASK__"
+        DEFAULT_DEVICE = "__DEFAULT_DEVICE__"
 
         if (ASSET_DIR / "visionforge-logo.png").exists():
             LOGO_FILE = "visionforge-logo.png"
@@ -1368,6 +1397,7 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             "http_timeout": 15.0,
             "conf": 0.25,
             "iou": 0.7,
+            "device": (os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE),
         }
 
         TEMPLATE = \"\"\"
@@ -1458,7 +1488,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
         def get_model():
             global MODEL
             if MODEL is None:
-                MODEL = YOLO(str(MODEL_PATH))
+                kwargs = {"task": MODEL_TASK} if MODEL_TASK else {}
+                MODEL = YOLO(str(MODEL_PATH), **kwargs)
             return MODEL
 
 
@@ -1531,7 +1562,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
 
 
         def infer_image_file(image_path: Path) -> str:
-            results = get_model().predict(source=str(image_path), verbose=False)
+            device = str(SETTINGS.get("device") or "cpu").strip() or "cpu"
+            results = get_model().predict(source=str(image_path), verbose=False, device=device)
             if not results:
                 raise RuntimeError("No inference result for image")
             annotated = results[0].plot()
@@ -1569,7 +1601,8 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
                 ok, frame = cap.read()
                 if not ok:
                     break
-                results = get_model().predict(source=frame, verbose=False)
+                device = str(SETTINGS.get("device") or "cpu").strip() or "cpu"
+                results = get_model().predict(source=frame, verbose=False, device=device)
                 writer.write(results[0].plot() if results else frame)
 
             cap.release()
@@ -1651,13 +1684,16 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             parser.add_argument("--server-url", default="http://127.0.0.1:8090")
             parser.add_argument("--disable-server", action="store_true")
             parser.add_argument("--timeout", type=float, default=15.0)
+            parser.add_argument("--device", default=(os.getenv("VISIONFORGE_DEVICE") or DEFAULT_DEVICE), help="Local inference device when server is unavailable")
             args = parser.parse_args()
             SETTINGS["server_url"] = str(args.server_url).strip()
             SETTINGS["use_server"] = not args.disable_server
             SETTINGS["http_timeout"] = max(1.0, float(args.timeout))
+            SETTINGS["device"] = str(args.device).strip() or "cpu"
             print(f"VisionForge demo running at http://{args.host}:{args.port}")
             if SETTINGS["use_server"]:
                 print(f"Server endpoint target: {SETTINGS['server_url']}")
+            print(f"Local fallback device: {SETTINGS['device']}")
             APP.run(host=args.host, port=args.port, debug=False)
 
 
@@ -1665,7 +1701,13 @@ def _write_runner_scripts(package_dir: Path, model_filename: str, target_id: str
             main()
         """
     ).strip() + "\n"
-    demo_py.write_text(demo_script.replace("__MODEL_FILENAME__", model_filename), encoding="utf-8")
+    demo_content = (
+        demo_script
+        .replace("__MODEL_FILENAME__", model_filename)
+        .replace("__MODEL_TASK__", normalized_task)
+        .replace("__DEFAULT_DEVICE__", default_device)
+    )
+    demo_py.write_text(demo_content, encoding="utf-8")
 
     script_files = profile.get("script_files", [])
     min_python_raw = str(profile.get("min_python") or "").strip()
