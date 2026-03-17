@@ -49,6 +49,17 @@ const isEngineRunning = () => new Promise((resolve) => {
     resolve(false);
   });
 });
+const waitForEngine = async (attempts, delayMs) => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (await isEngineRunning()) {
+      return true;
+    }
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return false;
+};
 const cleanupUnhealthyEngine = async () => {
   if (process.platform === "win32") return;
   await new Promise((resolve) => {
@@ -65,8 +76,15 @@ const startEngine = async () => {
     engineOwned = false;
     return;
   }
+  if (isDev) {
+    const becameHealthyDuringWarmup = await waitForEngine(10, 500);
+    if (becameHealthyDuringWarmup) {
+      engineOwned = false;
+      return;
+    }
+  }
   await cleanupUnhealthyEngine();
-  const becameHealthyAfterCleanup = await isEngineRunning();
+  const becameHealthyAfterCleanup = await waitForEngine(2, 500);
   if (becameHealthyAfterCleanup) {
     engineOwned = false;
     return;

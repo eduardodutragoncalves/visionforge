@@ -203,6 +203,10 @@ export const Dashboard = () => {
     const gpuMemoryUsed = Number(primaryGpu?.memoryUsed || 0);
     const gpuMemoryTotal = Number(primaryGpu?.memoryTotal || 0);
     const gpuMemoryPct = gpuMemoryTotal > 0 ? (gpuMemoryUsed / gpuMemoryTotal) * 100 : 0;
+    const trackedGpuCount = gpus.length > 0 ? gpus.length : (capabilities?.gpu_available ? 1 : 0);
+    const hasGpuMetrics = gpus.length > 0;
+    const fallbackGpuName = capabilities?.gpu_name
+        || (primaryGpu?.name && primaryGpu.name !== 'N/A' ? primaryGpu.name : 'GPU');
 
     const totals = useMemo(() => {
         return projects.reduce((acc, project) => {
@@ -491,7 +495,7 @@ export const Dashboard = () => {
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 text-sm">
                     <div className="rounded-xl border border-graphite-700/70 bg-graphite-900/70 px-3 py-2">
                         <div className="text-secondary text-xs uppercase tracking-[0.25em]">Tracked GPUs</div>
-                        <div className="mt-1 font-semibold">{gpus.length > 0 ? gpus.length : 1}</div>
+                        <div className="mt-1 font-semibold">{trackedGpuCount}</div>
                     </div>
                     <div className="rounded-xl border border-graphite-700/70 bg-graphite-900/70 px-3 py-2">
                         <div className="text-secondary text-xs uppercase tracking-[0.25em]">Session Runs</div>
@@ -506,6 +510,47 @@ export const Dashboard = () => {
                         <div className="mt-1 font-semibold">{activeRuns.length}</div>
                     </div>
                 </div>
+            </Card>
+
+            <Card className="space-y-3">
+                <div className="flex items-center gap-2">
+                    <Cpu size={16} className="text-accent-primary" />
+                    <h3 className="text-sm uppercase tracking-[0.3em] text-secondary">GPU Inventory</h3>
+                </div>
+                {!hasGpuMetrics ? (
+                    <div className="text-secondary text-sm">
+                        {capabilities?.gpu_available
+                            ? `GPU detected (${fallbackGpuName}). Waiting for live telemetry...`
+                            : 'No GPU detected yet.'}
+                    </div>
+                ) : (
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 text-sm">
+                        {gpus.map((gpuItem) => {
+                            const memPct = gpuItem.memoryTotal > 0
+                                ? (gpuItem.memoryUsed / gpuItem.memoryTotal) * 100
+                                : 0;
+                            const util = Math.round(Number(gpuItem.utilization || 0));
+                            return (
+                                <div
+                                    key={`gpu-inventory-${gpuItem.index}`}
+                                    className="rounded-xl border border-graphite-700/70 bg-graphite-900/70 px-3 py-2"
+                                >
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="font-semibold">GPU {gpuItem.index}</div>
+                                        <div className="text-xs text-secondary">{util}% util</div>
+                                    </div>
+                                    <div className="text-xs text-secondary truncate" title={gpuItem.name}>
+                                        {gpuItem.name}
+                                    </div>
+                                    <div className="mt-1 text-xs text-secondary">
+                                        VRAM {formatNumber(gpuItem.memoryUsed)} / {formatNumber(gpuItem.memoryTotal)} MB ({formatPercent(memPct)})
+                                    </div>
+                                    <div className="text-xs text-secondary">Temp {gpuItem.temperature}°C</div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </Card>
         </div>
     );

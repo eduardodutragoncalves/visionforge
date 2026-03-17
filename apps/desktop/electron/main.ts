@@ -57,6 +57,18 @@ const isEngineRunning = () => new Promise<boolean>((resolve) => {
     })
 })
 
+const waitForEngine = async (attempts: number, delayMs: number) => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        if (await isEngineRunning()) {
+            return true
+        }
+        if (attempt < attempts - 1) {
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+        }
+    }
+    return false
+}
+
 const cleanupUnhealthyEngine = async () => {
     if (process.platform === 'win32') return
     await new Promise<void>((resolve) => {
@@ -75,9 +87,18 @@ const startEngine = async () => {
         return
     }
 
+    // In dev, give an externally-managed engine a short startup window before spawning another process.
+    if (isDev) {
+        const becameHealthyDuringWarmup = await waitForEngine(10, 500)
+        if (becameHealthyDuringWarmup) {
+            engineOwned = false
+            return
+        }
+    }
+
     await cleanupUnhealthyEngine()
 
-    const becameHealthyAfterCleanup = await isEngineRunning()
+    const becameHealthyAfterCleanup = await waitForEngine(2, 500)
     if (becameHealthyAfterCleanup) {
         engineOwned = false
         return
