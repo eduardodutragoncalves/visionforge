@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "concurrently -k -n engine,desktop \"npm run dev:engine\" \"npm run dev:desktop\"",
     "dev:desktop": "npm run dev --workspace=apps/desktop",
-    "dev:engine": "uvicorn engine.main:app --reload --port 8000",
+    "dev:engine": "engine/venv/bin/python -m uvicorn engine.main:app --reload --port 8000",
     "autosync:start": "bash scripts/auto-commit-watch.sh start",
     "autosync:stop": "bash scripts/auto-commit-watch.sh stop",
     "autosync:restart": "bash scripts/auto-commit-watch.sh restart",
